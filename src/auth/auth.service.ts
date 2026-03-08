@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class AuthService {
@@ -12,6 +13,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private redisService: RedisService,
   ) {
     this.googleClient = new OAuth2Client(
       this.configService.getOrThrow<string>('GOOGLE_CLIENT_ID'),
@@ -25,6 +27,21 @@ export class AuthService {
       return result;
     }
     return null;
+  }
+
+  async register(email: string, password: string) {
+    const existing = await this.usersService.findByEmail(email);
+    if (existing) {
+      throw new UnauthorizedException('User already exists');
+    }
+
+    const otp = '123456';
+    await this.redisService.set(
+      `register:${email}`,
+      { email, password, otp },
+      300,
+    );
+    return { message: `OTP sent to ${email}`, otp };
   }
 
   login(user: any) {

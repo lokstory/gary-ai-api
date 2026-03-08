@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Req, Request, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthService } from './auth.service.js';
 import { LocalAuthGuard } from './local-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
@@ -6,6 +14,14 @@ import { AuthGuard } from '@nestjs/passport';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Post('register')
+  async register(
+    @Body('email') email: string,
+    @Body('password') password: string,
+  ) {
+    return this.authService.register(email, password);
+  }
 
   @UseGuards(LocalAuthGuard)
   @Post('/login')
@@ -23,17 +39,15 @@ export class AuthController {
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Request() req) {
-    // req.user 裡面就是 GoogleStrategy validate 回傳的物件
     const user = req.user;
 
     console.log(`google callback user: ${JSON.stringify(user)}`);
 
-    // 🔹 可以這裡產生 JWT
     const jwt = this.authService.login(user);
 
     return {
       message: 'Google login successful',
-      user,
+      email: user?.email,
       access_token: jwt.access_token,
     };
   }
