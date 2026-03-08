@@ -1,0 +1,22 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model users {
+  id             BigInt   @id(map: "pk_users") @default(autoincrement())
+  email          String?  @unique(map: "uk_users_email") @db.VarChar(255)
+  password_hash  String?
+  google_id      String?  @unique(map: "uk_users_google_id") @db.VarChar(512)
+  email_verified Boolean  @default(false)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at], map: "idx_users_created_at")
+}
