@@ -1,6 +1,8 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as argon2 from 'argon2';
+import { AppException } from '../models/app-exception';
+import { AppCode } from '../models/app-code';
 
 @Injectable()
 export class UsersService {
@@ -10,22 +12,27 @@ export class UsersService {
     return this.prisma.users.findUnique({ where: { email } });
   }
 
-  async createUser(email: string, password: string) {
+  async hashPassword(password: string) {
+    return await argon2.hash(password);
+  }
+
+  async createUser(email: string, passwordHash: string) {
     const existing = await this.findByEmail(email);
     if (existing) {
-      throw new ConflictException('User already exists');
+      throw new AppException({ code: AppCode.USER_ALREADY_EXISTS });
     }
 
-    const password_hash = await argon2.hash(password);
     return this.prisma.users.create({
-      data: { email, password_hash },
+      data: {
+        email,
+        password_hash: passwordHash,
+        email_verified: true,
+      },
     });
   }
 
-  async validatePassword(email: string, password: string) {
-    const user = await this.findByEmail(email);
-    if (!user || !user.password_hash) return false;
-    return argon2.verify(user.password_hash, password); // 驗證
+  async verifyPassword(passwordHash: string, password: string) {
+    return await argon2.verify(passwordHash, password);
   }
 
   async verifyEmailOtp(email: string, otp: string) {

@@ -30,6 +30,8 @@
     "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
     "argon2": "^0.44.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.4",
     "google-auth-library": "^10.6.1",
     "ioredis": "^5.10.0",
     "passport": "^0.7.0",

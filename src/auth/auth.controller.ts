@@ -8,26 +8,44 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
-import { LocalAuthGuard } from './local-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
+import { ApiOperation } from '@nestjs/swagger';
+import {
+  EmailRegisterRequest,
+  EmailRegisterVerifyRequest,
+  LoginRequest,
+} from '../models/user-api';
+import { RestResponse } from '../models/rest-response';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @ApiOperation({ summary: '信箱註冊' })
   @Post('register')
-  async register(
-    @Body('email') email: string,
-    @Body('password') password: string,
-  ) {
-    return this.authService.register(email, password);
+  async emailRegistration(@Body() input: EmailRegisterRequest) {
+    await this.authService.register(input.email, input.password);
+    return RestResponse.success();
   }
 
-  @UseGuards(LocalAuthGuard)
-  @Post('/login')
-  async login(@Request() req) {
-    return req.user;
+  @ApiOperation({ summary: '信箱驗證註冊' })
+  @Post('register/verify')
+  async verifyEmailRegistration(@Body() input: EmailRegisterVerifyRequest) {
+    await this.authService.verifyEmailRegistration(input.email, input.otp);
+    return RestResponse.success();
   }
+
+  @ApiOperation({ summary: '信箱登入' })
+  @Post('/login')
+  async login(@Body() input: LoginRequest) {
+    return await this.authService.loginByEmail(input.email, input.password);
+  }
+
+  // @UseGuards(LocalAuthGuard)
+  // @Post('/login')
+  // async login(@Request() req) {
+  //   return req.user;
+  // }
 
   @Get('/google/login')
   @UseGuards(AuthGuard('google'))
@@ -35,7 +53,6 @@ export class AuthController {
     // 這裡不需要做什麼，Passport 會自動 redirect
   }
 
-  // 2️⃣ Google callback
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Request() req) {
@@ -43,12 +60,8 @@ export class AuthController {
 
     console.log(`google callback user: ${JSON.stringify(user)}`);
 
-    const jwt = this.authService.login(user);
+    const data = this.authService.getLoginResponseData(user);
 
-    return {
-      message: 'Google login successful',
-      email: user?.email,
-      access_token: jwt.access_token,
-    };
+    return RestResponse.success(data);
   }
 }

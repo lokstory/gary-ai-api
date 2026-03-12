@@ -36,7 +36,7 @@ export class RestResponse<T = any> {
     data?: T | null;
     errors?: any[];
     extra?: any;
-  }) {
+  } = {}) {
     const [codeValue, defaultMessage] = code;
     this.code = codeValue;
     this.message = message ?? defaultMessage;
@@ -49,5 +49,9 @@ export class RestResponse<T = any> {
     if (extra) {
       this.extra = extra;
     }
+  }
+
+  static success(data: any = null) {
+    return new RestResponse({ data });
   }
 }
