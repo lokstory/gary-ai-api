@@ -1,7 +1,16 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, Matches } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsEmail,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  Min,
+} from 'class-validator';
 import { PASSWORD_REGEX } from './constants';
 import { AppCode } from './app-code';
+import { Type } from 'class-transformer';
 
 export class EmailRegisterRequest {
   @ApiProperty({ example: 'test@gmail.com' })
@@ -45,4 +54,30 @@ export class LoginRequest {
     context: { code: AppCode.PARAMETER_ERROR[0] },
   })
   password: string;
+}
+
+export class GoogleLoginRequest {
+  @ApiProperty({ example: 'Google credential (id token)' })
+  @IsString()
+  token: string;
+}
+
+export class ListPromptsQuery {
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Max(100)
+  page_size?: number;
+
+  @ApiPropertyOptional({ description: 'Search name or description' })
+  @IsOptional()
+  search?: string;
 }

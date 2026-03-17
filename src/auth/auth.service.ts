@@ -56,7 +56,7 @@ export class AuthService {
       throw new AppException({ code: AppCode.VERIFICATION_FAILED });
     }
 
-    return await this.usersService.createUser(email, payload.password);
+    return await this.usersService.createEmailUser(email, payload.password);
   }
 
   getLoginResponseData(user: any): object {
@@ -77,25 +77,51 @@ export class AuthService {
     return this.getLoginResponseData(user);
   }
 
-  // 驗證前端傳來的 id_token
-  async verifyGoogleToken(idToken: string) {
+  async loginByGoogle(idToken: string) {
+    console.log(idToken);
     const ticket = await this.googleClient.verifyIdToken({
       idToken,
       audience: this.configService.getOrThrow<string>('GOOGLE_CLIENT_ID'),
     });
 
+    console.log(ticket);
+
     const payload = ticket.getPayload();
     if (!payload) {
-      throw new Error('Invalid Google token');
+      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
     }
 
+    // Payload example:
+    // {
+    //   iss: 'https://accounts.google.com',
+    //   azp: '968092202652-pvbtm2r21j3p18b4dlad5j7lcr25aubv.apps.googleusercontent.com',
+    //   aud: '968092202652-pvbtm2r21j3p18b4dlad5j7lcr25aubv.apps.googleusercontent.com',
+    //   sub: '110142156374425089757',
+    //   email: 'lokstory@gmail.com',
+    //   email_verified: true,
+    //   nbf: 1773574187,
+    //   name: 'Shiun Jiang',
+    //   picture: 'https://lh3.googleusercontent.com/a/ACg8ocKwxModDGAJsPxSlIa44fUenhRI_VzzHVnChtaODKeF4Ym8KX2kiA=s96-c',
+    //   given_name: 'Shiun',
+    //   family_name: 'Jiang',
+    //   iat: 1773574487,
+    //   exp: 1773578087,
+    //   jti: '26821d4124e333602f0e26617429053942270257'
+    // }
+
+    const { sub: googleId, email, name, picture, exp } = payload;
+    if (exp && Math.floor(Date.now() / 1000) > exp) {
+      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
+    }
+
+    let user = await this.usersService.findByGoogleId(googleId);
+    if (!user) {
+      user = await this.usersService.createGoogleUser(googleId, email!);
+    }
+
+    console.log(payload);
+
     // 你可以只取需要的欄位
-    return {
-      googleId: payload.sub,
-      email: payload.email,
-      emailVerified: payload.email_verified,
-      name: payload.name,
-      picture: payload.picture,
-    };
+    return this.getLoginResponseData(user);
   }
 }

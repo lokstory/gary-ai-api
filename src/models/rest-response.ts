@@ -55,3 +55,58 @@ export class RestResponse<T = any> {
     return new RestResponse({ data });
   }
 }
+
+export class PaginationMeta {
+  @ApiProperty()
+  page: number;
+
+  @ApiProperty()
+  page_size: number;
+
+  @ApiProperty()
+  total: number;
+
+  @ApiProperty()
+  total_pages: number;
+
+  constructor(page: number, pageSize: number, total: number) {
+    this.page = page;
+    this.page_size = pageSize;
+    this.total = total;
+    this.total_pages = Math.ceil(total / pageSize);
+  }
+}
+
+export class PaginatedResponse<T> extends RestResponse<T[]> {
+  @ApiProperty({ type: PaginationMeta })
+  meta: PaginationMeta;
+
+  constructor({
+    data,
+    page,
+    pageSize,
+    total,
+  }: {
+    data: T[];
+    page: number;
+    pageSize: number;
+    total: number;
+  }) {
+    super({ data });
+    this.meta = new PaginationMeta(page, pageSize, total);
+  }
+
+  static success<T>({
+    data,
+    page,
+    pageSize,
+    total,
+  }: {
+    data: T[];
+    page: number;
+    pageSize: number;
+    total: number;
+  }) {
+    return new PaginatedResponse({ data, page, pageSize, total });
+  }
+}

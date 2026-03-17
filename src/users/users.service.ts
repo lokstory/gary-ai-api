@@ -12,11 +12,15 @@ export class UsersService {
     return this.prisma.users.findUnique({ where: { email } });
   }
 
+  async findByGoogleId(googleId: string) {
+    return this.prisma.users.findUnique({ where: { google_id: googleId } });
+  }
+
   async hashPassword(password: string) {
     return await argon2.hash(password);
   }
 
-  async createUser(email: string, passwordHash: string) {
+  async createEmailUser(email: string, passwordHash: string) {
     const existing = await this.findByEmail(email);
     if (existing) {
       throw new AppException({ code: AppCode.USER_ALREADY_EXISTS });
@@ -27,6 +31,15 @@ export class UsersService {
         email,
         password_hash: passwordHash,
         email_verified: true,
+      },
+    });
+  }
+
+  async createGoogleUser(googleId: string, email: string) {
+    return this.prisma.users.create({
+      data: {
+        google_id: googleId,
+        google_email: email,
       },
     });
   }

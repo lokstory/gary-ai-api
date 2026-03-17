@@ -7,6 +7,9 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import { RedisModule } from './redis/redis.module';
 import { RequestIdMiddleware } from './components/request-id-middleware';
+import { TestController } from './test.controller';
+import { PromptsModule } from './prompts/prompts.module';
+import { FilesModule } from './files/files.module';
 
 @Module({
   imports: [
@@ -15,8 +18,10 @@ import { RequestIdMiddleware } from './components/request-id-middleware';
     AuthModule,
     UsersModule,
     RedisModule,
+    PromptsModule,
+    FilesModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, TestController],
   providers: [AppService],
 })
 export class AppModule implements NestModule {
