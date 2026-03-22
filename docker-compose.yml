@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  api:
+    image: node:22
+    working_dir: /app
+    volumes:
+      - ./gary-ai-api:/app
+    ports:
+      - "80:3000"
+    command: sh -c "npm install && npx prisma generate && npm run start:dev"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - backend
+
+  postgres:
+    image: postgres:16
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: Xba7up6dKqmSYP7HbBhEmM6NbujfQwkk
+      POSTGRES_DB: gary_ai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "15432:5432"
+    networks:
+      - backend
+
+  redis:
+    image: redis:7
+    container_name: redis_cache
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "IN345it0l3PeXSu**l7TzRWVjNYfkBRM"]
+    ports:
+      - "16379:6379"
+    networks:
+      - backend
+
+volumes:
+  postgres_data:
+
+networks:
+  backend:

@@ -4,8 +4,9 @@ import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
-import { AppException } from '../models/app-exception';
-import { AppCode } from '../models/app-code';
+import { AppException } from '../models/app.exception';
+import { AppCode } from '../models/app.code';
+import { EmailRegisterRequest } from '../models/user-api.io';
 
 @Injectable()
 export class AuthService {
@@ -31,7 +32,8 @@ export class AuthService {
     return null;
   }
 
-  async register(email: string, password: string) {
+  async register(request: EmailRegisterRequest) {
+    const { name, email, password } = request;
     const existing = await this.usersService.findByEmail(email);
     if (existing) {
       throw new UnauthorizedException('User already exists');
@@ -43,6 +45,7 @@ export class AuthService {
       `register:${email}`,
       {
         email,
+        name,
         password: passwordHash,
         otp,
       },
@@ -56,11 +59,19 @@ export class AuthService {
       throw new AppException({ code: AppCode.VERIFICATION_FAILED });
     }
 
-    return await this.usersService.createEmailUser(email, payload.password);
+    return await this.usersService.createEmailUser(
+      email,
+      payload.password,
+      payload.name,
+    );
   }
 
   getLoginResponseData(user: any): object {
-    const payload = { email: user.email, sub: user.public_id };
+    const payload = {
+      email: user.email,
+      sub: user.public_id,
+      id: user.id.toString(),
+    };
     return {
       access_token: this.jwtService.sign(payload),
     };
@@ -78,7 +89,6 @@ export class AuthService {
   }
 
   async loginByGoogle(idToken: string) {
-    console.log(idToken);
     const ticket = await this.googleClient.verifyIdToken({
       idToken,
       audience: this.configService.getOrThrow<string>('GOOGLE_CLIENT_ID'),

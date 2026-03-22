@@ -1,6 +1,6 @@
 import { Injectable, ValidationPipe } from '@nestjs/common';
-import { AppCode, getAppCode } from '../models/app-code';
-import { AppException } from '../models/app-exception';
+import { AppCode, getAppCode } from '../models/app.code';
+import { AppException } from '../models/app.exception';
 
 @Injectable()
 export class AppValidationPipe extends ValidationPipe {
@@ -13,6 +13,8 @@ export class AppValidationPipe extends ValidationPipe {
         let code: number | undefined = undefined;
         let message: string | undefined = undefined;
         const formattedErrors: any[] = [];
+
+        console.log('errors', errors);
 
         for (const err of errors) {
           const constraints = err.constraints || {};

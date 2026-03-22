@@ -1,20 +1,36 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOperation } from '@nestjs/swagger';
+import {
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { PromptsService } from './prompts.service';
-import { ListPromptsQuery } from '../models/user-api';
-import { PaginatedResponse, RestResponse } from '../models/rest-response';
-import { FilesService } from '../files/files.service';
+import { ListPromptsQuery, PageQuery } from '../models/user-api.io';
+import { PaginatedResponse, RestResponse } from '../models/rest.response';
+import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
+import { SwaggerBearer } from '../models/constants';
+import { UserId } from '../components/user-id.decorator';
+import { AppException } from '../models/app.exception';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AppCode } from '../models/app.code';
+import { UUIDValidationPipe } from '../components/uuid-validation.pipe';
 
 @Controller('prompts')
 export class PromptsController {
-  constructor(
-    private readonly promptsService: PromptsService,
-    private readonly filesService: FilesService,
-  ) {}
+  constructor(private readonly promptsService: PromptsService) {}
 
-  @Get()
   @ApiOperation({ summary: 'List prompts' })
-  async listPrompts(@Query() query: ListPromptsQuery) {
+  @ApiBearerAuth(SwaggerBearer.USER)
+  @UseGuards(OptionalJwtAuthGuard)
+  @Get()
+  async listPrompts(
+    @Query() query: ListPromptsQuery,
+    @UserId() userId: bigint | null,
+  ) {
     const { items, page, pageSize, total } =
       await this.promptsService.listPrompts({
         page: query.page,
@@ -22,68 +38,81 @@ export class PromptsController {
         search: query.search,
       });
 
-    const fileMap = await this.attachFilesToPrompts(items);
-
-    const data = items.map((item) => {
-      const { public_id, name, description, price, enabled, created_at } = item;
-      const files = fileMap.get(item.id) || [];
-      return {
-        uuid: public_id,
-        name,
-        description,
-        price,
-        enabled,
-        created_at,
-        files,
-      };
-    });
+    const data = await this.promptsService.promptsToResponses(items, userId);
 
     return PaginatedResponse.success({ data, page, pageSize, total });
   }
 
-  @Get(':uuid')
-  @ApiOperation({ summary: 'Get prompt by UUID' })
-  async getPrompt(@Param('uuid') publicId: string) {
-    const prompt = await this.promptsService.getPromptByPublicId(publicId);
-    if (!prompt) return RestResponse.success();
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth(SwaggerBearer.USER)
+  @ApiOperation({ summary: 'List user favorite prompts' })
+  @Get('/favorites')
+  async listFavorites(@UserId() userId: bigint, @Query() query: PageQuery) {
+    const { items, total } = await this.promptsService.listFavoritePrompts(
+      userId,
+      query,
+    );
 
-    const fileMap = await this.attachFilesToPrompts([prompt]);
-    const files = fileMap.get(prompt.id) || [];
+    const data = await this.promptsService.promptsToResponses(items, userId);
 
-    const { public_id, name, description, price, enabled, created_at } = prompt;
-
-    return RestResponse.success({
-      uuid: public_id,
-      name,
-      description,
-      price,
-      enabled,
-      created_at,
-      files,
+    return PaginatedResponse.success({
+      data,
+      page: query.page,
+      pageSize: query.page_size,
+      total,
     });
   }
 
-  private async attachFilesToPrompts<T extends { id: bigint }>(
-    items: T[],
-  ): Promise<Map<bigint, any[]>> {
-    const fileMap: Map<bigint, any[]> = new Map();
-    if (!items || items.length === 0) return fileMap;
+  @ApiBearerAuth(SwaggerBearer.USER)
+  @UseGuards(JwtAuthGuard)
+  @Post(':uuid/favorite')
+  async addFavorite(
+    @Param('uuid', UUIDValidationPipe) publicId: string,
+    @UserId() userId: bigint,
+  ) {
+    const prompt = await this.promptsService.getPromptByPublicId(publicId);
+    if (!prompt) {
+      throw new AppException({ code: AppCode.NOT_FOUND });
+    }
 
-    const ids = items.map((item) => item.id);
-    const files = await this.filesService.listFilesByRefIds('prompts', ids);
+    await this.promptsService.addFavorite(userId, prompt.id);
 
-    files.forEach((file) => {
-      if (!fileMap.has(file.ref_id)) {
-        fileMap.set(file.ref_id, []);
-      }
-      const { file_type, position, url, created_at } = file;
-      fileMap.get(file.ref_id)?.push({ file_type, position, url, created_at });
-    });
+    return RestResponse.success();
+  }
 
-    fileMap.forEach((arr) => {
-      arr.sort((a, b) => a.position - b.position);
-    });
+  @ApiBearerAuth(SwaggerBearer.USER)
+  @UseGuards(JwtAuthGuard)
+  @Delete(':uuid/favorite')
+  async removeFavorite(
+    @Param('uuid', UUIDValidationPipe) publicId: string,
+    @UserId() userId: bigint,
+  ) {
+    const prompt = await this.promptsService.getPromptByPublicId(publicId);
+    if (!prompt) {
+      throw new AppException({ code: AppCode.NOT_FOUND });
+    }
 
-    return fileMap;
+    await this.promptsService.removeFavorite(userId, prompt.id);
+
+    return RestResponse.success();
+  }
+
+  @Get(':uuid')
+  @ApiBearerAuth(SwaggerBearer.USER)
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Get prompt by UUID' })
+  async getPrompt(
+    @Param('uuid', UUIDValidationPipe) publicId: string,
+    @UserId() userId: bigint | null,
+  ) {
+    const prompt = await this.promptsService.getPromptByPublicId(publicId);
+    if (!prompt) return RestResponse.success();
+
+    const [data] = await this.promptsService.promptsToResponses(
+      [prompt],
+      userId,
+    );
+
+    return RestResponse.success(data);
   }
 }

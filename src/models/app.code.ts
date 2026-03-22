@@ -1,6 +1,7 @@
 export const AppCode = {
   SUCCESS: [0, 'Success'] as const,
   PARAMETER_ERROR: [400, 'Parameter error'] as const,
+  NOT_FOUND: [404, 'Not found'] as const,
   SERVER_ERROR: [500, 'Server error'] as const,
   USER_ALREADY_EXISTS: [1000, 'User already exists'] as const,
   CREDENTIALS_INVALID: [1001, 'Invalid credentials'] as const,

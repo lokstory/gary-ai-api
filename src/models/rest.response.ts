@@ -1,4 +1,4 @@
-import { AppCode, AppCodeType } from './app-code';
+import { AppCode, AppCodeType } from './app.code';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RestResponse<T = any> {

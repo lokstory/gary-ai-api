@@ -10,25 +10,29 @@ datasource db {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model users {
-  id             BigInt   @id(map: "pk_users") @default(autoincrement())
-  public_id      String   @unique(map: "uk_users_public_id") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email          String?  @unique(map: "uk_users_email") @db.VarChar(255)
-  password_hash  String?
-  google_id      String?  @unique(map: "uk_users_google_id") @db.VarChar(512)
-  google_email   String?  @db.VarChar(255)
-  email_verified Boolean  @default(false)
-  created_at     DateTime @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime @default(now()) @db.Timestamptz(6)
+  id                    BigInt                  @id(map: "pk_users") @default(autoincrement())
+  public_id             String                  @unique(map: "uk_users_public_id") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                 String?                 @unique(map: "uk_users_email") @db.VarChar(255)
+  password_hash         String?
+  google_id             String?                 @unique(map: "uk_users_google_id") @db.VarChar(512)
+  google_email          String?                 @db.VarChar(255)
+  email_verified        Boolean                 @default(false)
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  name                  String?                 @db.VarChar(64)
+  user_prompt_favorites user_prompt_favorites[]
 
   @@index([created_at], map: "idx_users_created_at")
 }
 
 model files {
   id         BigInt    @id @default(autoincrement())
+  public_id  String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ref_table  String
   ref_id     BigInt
   file_type  String
   position   Int       @default(0)
+  bucket     String?   @db.VarChar(128)
   url        String
   metadata   Json?
   created_at DateTime? @default(now()) @db.Timestamptz(6)
@@ -47,16 +51,29 @@ model kv_store {
 }
 
 model prompts {
-  id          BigInt    @id @default(autoincrement())
-  public_id   String    @unique(map: "uk_prompts_public_id") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name        String
-  description String?
-  price       Int
-  prompt      String?
-  enabled     Boolean   @default(false)
-  created_at  DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime? @default(now()) @db.Timestamptz(6)
+  id                    BigInt                  @id @default(autoincrement())
+  public_id             String                  @unique(map: "uk_prompts_public_id") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String
+  description           String?
+  price                 Int
+  enabled               Boolean                 @default(false)
+  created_at            DateTime?               @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime?               @default(now()) @db.Timestamptz(6)
+  bonus_credit          Int                     @default(0)
+  user_prompt_favorites user_prompt_favorites[]
 
   @@index([description], map: "idx_prompts_description")
   @@index([name], map: "idx_prompts_name")
+}
+
+model user_prompt_favorites {
+  user_id    BigInt
+  prompt_id  BigInt
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  prompts    prompts  @relation(fields: [prompt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, prompt_id])
+  @@index([user_id, updated_at(sort: Desc)], map: "idx_user_prompt_favorites_updated_at")
 }

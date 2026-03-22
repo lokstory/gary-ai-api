@@ -6,8 +6,8 @@ import {
   EmailRegisterVerifyRequest,
   GoogleLoginRequest,
   LoginRequest,
-} from '../models/user-api';
-import { RestResponse } from '../models/rest-response';
+} from '../models/user-api.io';
+import { RestResponse } from '../models/rest.response';
 
 @Controller('auth')
 export class AuthController {
@@ -16,7 +16,7 @@ export class AuthController {
   @ApiOperation({ summary: '信箱註冊' })
   @Post('register')
   async emailRegistration(@Body() input: EmailRegisterRequest) {
-    await this.authService.register(input.email, input.password);
+    await this.authService.register(input);
     return RestResponse.success();
   }
 
