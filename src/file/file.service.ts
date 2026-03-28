@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { files } from '../../generated/prisma/client';
 
 @Injectable()
-export class FilesService {
+export class FileService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listFilesByRefIds(

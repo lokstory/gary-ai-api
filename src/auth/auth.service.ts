@@ -1,5 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { UsersService } from '../users/users.service';
+import { UserService } from '../user/user.service';
 import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
 import { ConfigService } from '@nestjs/config';
@@ -13,7 +13,7 @@ export class AuthService {
   private googleClient: OAuth2Client;
 
   constructor(
-    private usersService: UsersService,
+    private usersService: UserService,
     private jwtService: JwtService,
     private configService: ConfigService,
     private redisService: RedisService,
@@ -69,7 +69,7 @@ export class AuthService {
   getLoginResponseData(user: any): object {
     const payload = {
       email: user.email,
-      sub: user.public_id,
+      sub: user.uuid,
       id: user.id.toString(),
     };
     return {

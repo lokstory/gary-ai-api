@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryMode } from '../../generated/prisma/internal/prismaNamespace';
-import { FilesService } from '../files/files.service';
+import { FileService } from '../file/file.service';
 import { prompts } from '../../generated/prisma/client';
 import { PageQuery } from '../models/user-api.io';
 
 @Injectable()
-export class PromptsService {
+export class PromptService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly filesService: FilesService,
+    private readonly filesService: FileService,
   ) {}
 
   async listPrompts({
@@ -53,7 +53,7 @@ export class PromptsService {
   async getPromptByPublicId(publicId: string): Promise<prompts | null> {
     return this.prisma.prompts.findFirst({
       where: {
-        public_id: publicId,
+        uuid: publicId,
       },
     });
   }
@@ -89,15 +89,14 @@ export class PromptsService {
   ): Promise<Map<bigint, { is_favorite: boolean; purchased: boolean }>> {
     if (!userId || promptIds.length === 0) return new Map();
 
-    // 查 user_favorites table
-    const favorites = await this.prisma.user_prompt_favorites.findMany({
-      where: { user_id: userId, prompt_id: { in: promptIds } },
-    });
-
-    // 查 user_purchases table
-    // const purchases = await this.userPurchasesRepo.find({
-    //   where: { user_id: userId, prompt_id: { in: promptIds } },
-    // });
+    const [favorites, purchases] = await this.prisma.$transaction([
+      this.prisma.user_prompt_favorites.findMany({
+        where: { user_id: userId, prompt_id: { in: promptIds } },
+      }),
+      this.prisma.user_prompts.findMany({
+        where: { user_id: userId, prompt_id: { in: promptIds } },
+      }),
+    ]);
 
     const stateMap = new Map<
       bigint,
@@ -107,8 +106,7 @@ export class PromptsService {
     promptIds.forEach((id) => {
       stateMap.set(id, {
         is_favorite: favorites.some((f) => f.prompt_id === id),
-        // purchased: purchases.some((p) => p.prompt_id === id),
-        purchased: false,
+        purchased: purchases.some((p) => p.prompt_id === id),
       });
     });
 
@@ -136,7 +134,7 @@ export class PromptsService {
     };
 
     return {
-      uuid: prompt.public_id,
+      uuid: prompt.uuid,
       name: prompt.name,
       description: prompt.description,
       price: prompt.price,
@@ -164,16 +162,13 @@ export class PromptsService {
   async listFavoritePrompts(userId: bigint, options: PageQuery) {
     if (!userId) return { items: [], total: 0 };
 
-    const skip = (options.page! - 1) * options.page_size!;
-    const take = options.page_size!;
-
     const [favorites, total] = await this.prisma.$transaction([
       this.prisma.user_prompt_favorites.findMany({
         where: { user_id: userId },
         orderBy: { updated_at: 'desc' },
         include: { prompts: true },
-        skip,
-        take,
+        skip: (options.page - 1) * options.page_size,
+        take: options.page_size,
       }),
       this.prisma.user_prompt_favorites.count({
         where: { user_id: userId },
@@ -185,6 +180,25 @@ export class PromptsService {
       .filter((p): p is prompts => !!p);
 
     return { items: prompts, total };
+  }
+
+  async listPurchasedPrompts(userId: bigint, options: PageQuery) {
+    const [purchased, total] = await this.prisma.$transaction([
+      this.prisma.user_prompts.findMany({
+        where: { user_id: userId },
+        orderBy: { created_at: 'desc' },
+        include: { prompts: true },
+        skip: (options.page - 1) * options.page_size,
+        take: options.page_size,
+      }),
+      this.prisma.user_prompts.count({ where: { user_id: userId } }),
+    ]);
+
+    const items = purchased
+      .map((p) => p.prompts)
+      .filter((p): p is prompts => !!p);
+
+    return { items, total };
   }
 
   async addFavorite(userId: bigint, promptId: bigint): Promise<void> {

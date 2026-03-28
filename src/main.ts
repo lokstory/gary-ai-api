@@ -6,7 +6,7 @@ import { SwaggerBearer } from './models/constants';
 import { AppValidationPipe } from './components/app-validation.pipe';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.useGlobalFilters(new AppExceptionFilter());
   app.useGlobalPipes(new AppValidationPipe());

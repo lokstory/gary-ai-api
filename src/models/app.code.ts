@@ -7,6 +7,10 @@ export const AppCode = {
   CREDENTIALS_INVALID: [1001, 'Invalid credentials'] as const,
   VERIFICATION_FAILED: [1002, 'Verification failed'] as const,
   OTP_TOO_MANY_ATTEMPTS: [1003, 'Too many attempts'] as const,
+  CART_ITEM_ALREADY_EXISTS: [1004, 'Item already in cart'] as const,
+  ORDER_CART_EMPTY: [1005, 'Cart is empty'] as const,
+  ORDER_CHECKOUT_FAILED: [1006, 'Checkout failed'] as const,
+  ORDER_ITEM_ALREADY_PURCHASED: [1007, 'Item already purchased'] as const,
 } as const;
 
 export type AppCodeKey = keyof typeof AppCode;

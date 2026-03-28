@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { PromptsService } from './prompts.service';
+import { PromptService } from './prompt.service';
 import { ListPromptsQuery, PageQuery } from '../models/user-api.io';
 import { PaginatedResponse, RestResponse } from '../models/rest.response';
 import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
@@ -20,8 +20,8 @@ import { AppCode } from '../models/app.code';
 import { UUIDValidationPipe } from '../components/uuid-validation.pipe';
 
 @Controller('prompts')
-export class PromptsController {
-  constructor(private readonly promptsService: PromptsService) {}
+export class PromptController {
+  constructor(private readonly promptsService: PromptService) {}
 
   @ApiOperation({ summary: 'List prompts' })
   @ApiBearerAuth(SwaggerBearer.USER)
@@ -49,6 +49,26 @@ export class PromptsController {
   @Get('/favorites')
   async listFavorites(@UserId() userId: bigint, @Query() query: PageQuery) {
     const { items, total } = await this.promptsService.listFavoritePrompts(
+      userId,
+      query,
+    );
+
+    const data = await this.promptsService.promptsToResponses(items, userId);
+
+    return PaginatedResponse.success({
+      data,
+      page: query.page,
+      pageSize: query.page_size,
+      total,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth(SwaggerBearer.USER)
+  @ApiOperation({ summary: 'List user purchased prompts' })
+  @Get('/purchased')
+  async listPurchased(@UserId() userId: bigint, @Query() query: PageQuery) {
+    const { items, total } = await this.promptsService.listPurchasedPrompts(
       userId,
       query,
     );

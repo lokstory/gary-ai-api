@@ -10,7 +10,7 @@ CREATE TABLE kv_store
 CREATE TABLE users
 (
   id             BIGSERIAL,
-  public_id      UUID        NOT NULL DEFAULT gen_random_uuid(),
+  uuid           UUID        NOT NULL DEFAULT gen_random_uuid(),
   email          VARCHAR(255),
   name           VARCHAR(64),
   password_hash  TEXT,
@@ -21,8 +21,8 @@ CREATE TABLE users
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT pk_users
     PRIMARY KEY (id),
-  CONSTRAINT uk_users_public_id
-    UNIQUE (public_id),
+  CONSTRAINT uk_users_uuid
+    UNIQUE (uuid),
   CONSTRAINT uk_users_email
     UNIQUE (email),
   CONSTRAINT uk_users_google_id
@@ -43,7 +43,7 @@ CREATE INDEX idx_users_created_at
 CREATE TABLE prompts
 (
   id           BIGSERIAL PRIMARY KEY,
-  public_id  UUID         NOT NULL    DEFAULT gen_random_uuid() UNIQUE,
+  uuid         UUID    NOT NULL         DEFAULT gen_random_uuid() UNIQUE,
   name         TEXT    NOT NULL,
   description  TEXT,
   price        INTEGER NOT NULL,
@@ -62,7 +62,7 @@ CREATE INDEX idx_prompts_description
 CREATE TABLE files
 (
   id         BIGSERIAL PRIMARY KEY,
-  public_id  UUID         NOT NULL    DEFAULT gen_random_uuid() UNIQUE,
+  uuid       UUID         NOT NULL    DEFAULT gen_random_uuid() UNIQUE,
   ref_table  TEXT         NOT NULL,
   ref_id     BIGINT       NOT NULL,
   file_type  TEXT         NOT NULL,
@@ -106,10 +106,10 @@ CREATE TABLE cart_items
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT uk_cart_user_id_item_type_item_id UNIQUE (user_id, item_type, item_id)
 );
-
 CREATE TABLE orders
 (
   id         BIGSERIAL PRIMARY KEY,
+  uuid       UUID        NOT NULL DEFAULT gen_random_uuid() UNIQUE,
   user_id    BIGINT      NOT NULL REFERENCES users (id) ON UPDATE CASCADE ON DELETE CASCADE,
   status     VARCHAR(50) NOT NULL DEFAULT 'PENDING',
   amount     INTEGER     NOT NULL CHECK (amount >= 0),
@@ -157,3 +157,15 @@ CREATE TABLE payments
 
 CREATE INDEX idx_payments_order_id ON payments (order_id);
 CREATE INDEX idx_payments_provider_status ON payments (provider, status);
+
+CREATE TABLE user_prompts
+(
+  user_id    BIGINT      NOT NULL,
+  prompt_id  BIGINT      NOT NULL,
+  order_id   BIGINT      NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, prompt_id),
+  FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  FOREIGN KEY (prompt_id) REFERENCES prompts (id) ON DELETE CASCADE,
+  FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE
+);

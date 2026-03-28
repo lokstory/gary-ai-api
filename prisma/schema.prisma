@@ -11,7 +11,7 @@ datasource db {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model users {
   id                    BigInt                  @id(map: "pk_users") @default(autoincrement())
-  public_id             String                  @unique(map: "uk_users_public_id") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uuid                  String                  @unique(map: "uk_users_public_id") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email                 String?                 @unique(map: "uk_users_email") @db.VarChar(255)
   password_hash         String?
   google_id             String?                 @unique(map: "uk_users_google_id") @db.VarChar(512)
@@ -23,13 +23,14 @@ model users {
   cart_items            cart_items[]
   orders                orders[]
   user_prompt_favorites user_prompt_favorites[]
+  user_prompts          user_prompts[]
 
   @@index([created_at], map: "idx_users_created_at")
 }
 
 model files {
   id         BigInt    @id @default(autoincrement())
-  public_id  String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uuid       String    @unique(map: "files_public_id_key") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ref_table  String
   ref_id     BigInt
   file_type  String
@@ -54,7 +55,7 @@ model kv_store {
 
 model prompts {
   id                    BigInt                  @id @default(autoincrement())
-  public_id             String                  @unique(map: "uk_prompts_public_id") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uuid                  String                  @unique(map: "uk_prompts_public_id") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                  String
   description           String?
   price                 Int
@@ -63,6 +64,7 @@ model prompts {
   updated_at            DateTime?               @default(now()) @db.Timestamptz(6)
   bonus_credit          Int                     @default(0)
   user_prompt_favorites user_prompt_favorites[]
+  user_prompts          user_prompts[]
 
   @@index([description], map: "idx_prompts_description")
   @@index([name], map: "idx_prompts_name")
@@ -111,16 +113,18 @@ model order_items {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model orders {
-  id          BigInt        @id @default(autoincrement())
-  user_id     BigInt
-  status      String        @default("PENDING") @db.VarChar(50)
-  amount      Int
-  currency    String        @default("TWD") @db.VarChar(10)
-  created_at  DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime      @default(now()) @db.Timestamptz(6)
-  order_items order_items[]
-  users       users         @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  payments    payments[]
+  id           BigInt         @id @default(autoincrement())
+  uuid         String         @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id      BigInt
+  status       String         @default("PENDING") @db.VarChar(50)
+  amount       Int
+  currency     String         @default("TWD") @db.VarChar(10)
+  created_at   DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime       @default(now()) @db.Timestamptz(6)
+  order_items  order_items[]
+  users        users          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  payments     payments[]
+  user_prompts user_prompts[]
 
   @@index([status], map: "idx_orders_status")
   @@index([user_id], map: "idx_orders_user_id")
@@ -143,4 +147,16 @@ model payments {
   @@unique([provider, provider_payment_id], map: "uk_payments_provider_payment_id")
   @@index([order_id], map: "idx_payments_order_id")
   @@index([provider, status], map: "idx_payments_provider_status")
+}
+
+model user_prompts {
+  user_id    BigInt
+  prompt_id  BigInt
+  order_id   BigInt
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  orders     orders   @relation(fields: [order_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  prompts    prompts  @relation(fields: [prompt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, prompt_id])
 }

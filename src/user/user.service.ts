@@ -7,11 +7,11 @@ import { users } from '../../generated/prisma/client';
 import { UpdateUserInfoRequest } from '../models/user-api.io';
 
 @Injectable()
-export class UsersService {
+export class UserService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByPublicId(publicId: string): Promise<users | null> {
-    return this.prisma.users.findUnique({ where: { public_id: publicId } });
+  async findByPublicId(uuid: string): Promise<users | null> {
+    return this.prisma.users.findUnique({ where: { uuid } });
   }
 
   async findByEmail(email: string) {
@@ -22,13 +22,10 @@ export class UsersService {
     return this.prisma.users.findUnique({ where: { google_id: googleId } });
   }
 
-  async updateUserInfoByPublicId(
-    publicId: string,
-    data: UpdateUserInfoRequest,
-  ) {
+  async updateUserInfoByUuid(uuid: string, data: UpdateUserInfoRequest) {
     return this.prisma.users.update({
       where: {
-        public_id: publicId,
+        uuid,
       },
       data: {
         ...(data.name !== undefined ? { name: data.name } : {}),
