@@ -20,6 +20,8 @@ model users {
   created_at            DateTime                @default(now()) @db.Timestamptz(6)
   updated_at            DateTime                @default(now()) @db.Timestamptz(6)
   name                  String?                 @db.VarChar(64)
+  cart_items            cart_items[]
+  orders                orders[]
   user_prompt_favorites user_prompt_favorites[]
 
   @@index([created_at], map: "idx_users_created_at")
@@ -76,4 +78,69 @@ model user_prompt_favorites {
 
   @@id([user_id, prompt_id])
   @@index([user_id, updated_at(sort: Desc)], map: "idx_user_prompt_favorites_updated_at")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cart_items {
+  id         BigInt   @id @default(autoincrement())
+  user_id    BigInt
+  item_type  String   @db.VarChar(50)
+  item_id    BigInt
+  quantity   Int      @default(1)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, item_type, item_id], map: "uk_cart_user_id_item_type_item_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model order_items {
+  id         BigInt   @id @default(autoincrement())
+  order_id   BigInt
+  item_type  String   @db.VarChar(50)
+  item_id    BigInt
+  quantity   Int      @default(1)
+  unit_price Int
+  amount     Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  orders     orders   @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id], map: "idx_order_items_order_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model orders {
+  id          BigInt        @id @default(autoincrement())
+  user_id     BigInt
+  status      String        @default("PENDING") @db.VarChar(50)
+  amount      Int
+  currency    String        @default("TWD") @db.VarChar(10)
+  created_at  DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime      @default(now()) @db.Timestamptz(6)
+  order_items order_items[]
+  users       users         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  payments    payments[]
+
+  @@index([status], map: "idx_orders_status")
+  @@index([user_id], map: "idx_orders_user_id")
+}
+
+model payments {
+  id                  BigInt    @id @default(autoincrement())
+  order_id            BigInt
+  provider            String    @db.VarChar(50)
+  status              String    @default("PENDING") @db.VarChar(50)
+  provider_payment_id String    @db.VarChar(512)
+  provider_session_id String?   @db.VarChar(512)
+  checkout_url        String?
+  raw_payload         Json?
+  expires_at          DateTime? @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  orders              orders    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider, provider_payment_id], map: "uk_payments_provider_payment_id")
+  @@index([order_id], map: "idx_payments_order_id")
+  @@index([provider, status], map: "idx_payments_provider_status")
 }
