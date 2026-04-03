@@ -2,7 +2,6 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  CartItemType,
   OrderItemType,
   OrderStatus,
   PaymentProvider,
@@ -55,7 +54,7 @@ export class OrderService implements OnModuleInit {
 
     const lineItems = cartItems
       .map((item) => {
-        if (isEnumEqual(CartItemType.PROMPT, item.item_type)) {
+        if (isEnumEqual(OrderItemType.PROMPT, item.item_type)) {
           const prompt = promptMap.get(item.item_id);
           return {
             item_type: item.item_type,
@@ -83,7 +82,7 @@ export class OrderService implements OnModuleInit {
     let name = '';
     let unitPrice = 0;
 
-    if (isEnumEqual(CartItemType.PROMPT, itemType)) {
+    if (isEnumEqual(OrderItemType.PROMPT, itemType)) {
       const prompt = await this.prisma.prompts.findUnique({
         where: { id: itemId },
       });
@@ -121,7 +120,7 @@ export class OrderService implements OnModuleInit {
     totalAmount: number,
   ): Promise<{ checkout_url: string }> {
     const promptIds = lineItems
-      .filter((i) => isEnumEqual(CartItemType.PROMPT, i.item_type))
+      .filter((i) => isEnumEqual(OrderItemType.PROMPT, i.item_type))
       .map((i) => i.item_id);
 
     if (promptIds.length) {
@@ -340,7 +339,7 @@ export class OrderService implements OnModuleInit {
 
     const promptIds = orders
       .flatMap((o) => o.order_items)
-      .filter((i) => isEnumEqual(CartItemType.PROMPT, i.item_type))
+      .filter((i) => isEnumEqual(OrderItemType.PROMPT, i.item_type))
       .map((i) => i.item_id);
 
     const prompts =
@@ -369,7 +368,7 @@ export class OrderService implements OnModuleInit {
         quantity: item.quantity,
         unit_price: item.unit_price,
         amount: item.amount,
-        item: isEnumEqual(CartItemType.PROMPT, item.item_type)
+        item: isEnumEqual(OrderItemType.PROMPT, item.item_type)
           ? (promptResponseMap.get(item.item_id) ?? null)
           : null,
       })),
