@@ -169,3 +169,65 @@ CREATE TABLE user_prompts
   FOREIGN KEY (prompt_id) REFERENCES prompts (id) ON DELETE CASCADE,
   FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE
 );
+
+
+CREATE TABLE admins
+(
+  id            BIGSERIAL,
+  username      VARCHAR(255) NOT NULL,
+  password_hash TEXT         NOT NULL,
+  name          VARCHAR(128) NULL,
+  role          VARCHAR(50)  NULL,
+  enabled       BOOLEAN      NOT NULL,
+  last_login_at TIMESTAMPTZ  NULL,
+  created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  CONSTRAINT pk_admins
+    PRIMARY KEY (id),
+  CONSTRAINT uk_admins_username
+    UNIQUE (username)
+);
+
+CREATE INDEX idx_admins_created_at
+  ON admins (created_at);
+
+CREATE INDEX idx_admins_enabled
+  ON admins (enabled);
+
+CREATE TABLE labels
+(
+  id         SERIAL,
+  code       VARCHAR(100)  NOT NULL,
+  name       VARCHAR(255)  NOT NULL,
+  enabled    BOOLEAN       NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  CONSTRAINT pk_labels
+    PRIMARY KEY (id),
+  CONSTRAINT uk_labels_code
+    UNIQUE (code),
+  CONSTRAINT uk_labels_name
+    UNIQUE (name)
+);
+
+CREATE INDEX idx_labels_enabled
+  ON labels (enabled);
+
+CREATE INDEX idx_labels_created_at
+  ON labels (created_at);
+
+CREATE TABLE prompt_labels
+(
+  prompt_id   BIGINT      NOT NULL,
+  label_id    INT         NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT pk_prompt_labels
+    PRIMARY KEY (prompt_id, label_id),
+  CONSTRAINT fk_prompt_labels_prompt_id
+    FOREIGN KEY (prompt_id) REFERENCES prompts (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_prompt_labels_label_id
+    FOREIGN KEY (label_id) REFERENCES labels (id) ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+CREATE INDEX idx_prompt_labels_label_id
+  ON prompt_labels (label_id);

@@ -1,6 +1,6 @@
 import { Controller, Get, Param } from '@nestjs/common';
 import { AppService } from './app.service';
-import { RedisService } from './redis/redis.service';
+import { RedisService } from './modules/redis/redis.service';
 import { AppException } from './models/app.exception';
 import { AppCode } from './models/app.code';
 import { RestResponse } from './models/rest.response';

@@ -11,15 +11,15 @@ datasource db {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model users {
   id                    BigInt                  @id(map: "pk_users") @default(autoincrement())
-  uuid                  String                  @unique(map: "uk_users_public_id") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uuid                  String                  @unique(map: "uk_users_uuid") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email                 String?                 @unique(map: "uk_users_email") @db.VarChar(255)
+  name                  String?                 @db.VarChar(64)
   password_hash         String?
   google_id             String?                 @unique(map: "uk_users_google_id") @db.VarChar(512)
   google_email          String?                 @db.VarChar(255)
   email_verified        Boolean                 @default(false)
   created_at            DateTime                @default(now()) @db.Timestamptz(6)
   updated_at            DateTime                @default(now()) @db.Timestamptz(6)
-  name                  String?                 @db.VarChar(64)
   cart_items            cart_items[]
   orders                orders[]
   user_prompt_favorites user_prompt_favorites[]
@@ -30,7 +30,7 @@ model users {
 
 model files {
   id         BigInt    @id @default(autoincrement())
-  uuid       String    @unique(map: "files_public_id_key") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uuid       String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ref_table  String
   ref_id     BigInt
   file_type  String
@@ -55,14 +55,15 @@ model kv_store {
 
 model prompts {
   id                    BigInt                  @id @default(autoincrement())
-  uuid                  String                  @unique(map: "uk_prompts_public_id") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uuid                  String                  @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                  String
   description           String?
   price                 Int
+  bonus_credit          Int                     @default(0)
   enabled               Boolean                 @default(false)
   created_at            DateTime?               @default(now()) @db.Timestamptz(6)
   updated_at            DateTime?               @default(now()) @db.Timestamptz(6)
-  bonus_credit          Int                     @default(0)
+  prompt_labels         prompt_labels[]
   user_prompt_favorites user_prompt_favorites[]
   user_prompts          user_prompts[]
 
@@ -75,8 +76,8 @@ model user_prompt_favorites {
   prompt_id  BigInt
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @db.Timestamptz(6)
-  prompts    prompts  @relation(fields: [prompt_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  prompts    prompts  @relation(fields: [prompt_id], references: [id], onDelete: Cascade)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@id([user_id, prompt_id])
   @@index([user_id, updated_at(sort: Desc)], map: "idx_user_prompt_favorites_updated_at")
@@ -159,4 +160,43 @@ model user_prompts {
   users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([user_id, prompt_id])
+}
+
+model admins {
+  id            BigInt    @id(map: "pk_admins") @default(autoincrement())
+  username      String    @unique(map: "uk_admins_username") @db.VarChar(255)
+  password_hash String
+  name          String?   @db.VarChar(128)
+  role          String?   @db.VarChar(50)
+  enabled       Boolean
+  last_login_at DateTime? @db.Timestamptz(6)
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at], map: "idx_admins_created_at")
+  @@index([enabled], map: "idx_admins_enabled")
+}
+
+model labels {
+  id            Int             @id(map: "pk_labels") @default(autoincrement())
+  code          String          @unique(map: "uk_labels_code") @db.VarChar(100)
+  name          String          @unique(map: "uk_labels_name") @db.VarChar(255)
+  enabled       Boolean         @default(true)
+  created_at    DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime        @default(now()) @db.Timestamptz(6)
+  prompt_labels prompt_labels[]
+
+  @@index([created_at], map: "idx_labels_created_at")
+  @@index([enabled], map: "idx_labels_enabled")
+}
+
+model prompt_labels {
+  prompt_id  BigInt
+  label_id   Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  labels     labels   @relation(fields: [label_id], references: [id], onDelete: Cascade, map: "fk_prompt_labels_label_id")
+  prompts    prompts  @relation(fields: [prompt_id], references: [id], onDelete: Cascade, map: "fk_prompt_labels_prompt_id")
+
+  @@id([prompt_id, label_id], map: "pk_prompt_labels")
+  @@index([label_id], map: "idx_prompt_labels_label_id")
 }

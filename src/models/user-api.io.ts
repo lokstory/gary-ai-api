@@ -91,6 +91,11 @@ export class GoogleLoginRequest {
   token: string;
 }
 
+export class AuthLoginResponse {
+  @ApiProperty()
+  access_token: string;
+}
+
 export class ListPromptsQuery extends PageQuery {
   @ApiPropertyOptional({ description: 'Search name or description' })
   @IsOptional()
@@ -110,6 +115,133 @@ export class UserInfoResponse {
   constructor(partial: Partial<UserInfoResponse>) {
     Object.assign(this, partial);
   }
+}
+
+export class PromptFileResponse {
+  @ApiProperty()
+  file_type: string;
+
+  @ApiProperty()
+  position: number;
+
+  @ApiProperty()
+  url: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  thumbnail_url?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  created_at?: Date | null;
+}
+
+export class PromptLabelResponse {
+  @ApiProperty()
+  code: string;
+
+  @ApiProperty()
+  name: string;
+}
+
+export class PromptUserStateResponse {
+  @ApiProperty()
+  is_favorite: boolean;
+
+  @ApiProperty()
+  purchased: boolean;
+}
+
+export class PromptResponse {
+  @ApiProperty()
+  uuid: string;
+
+  @ApiProperty()
+  name: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  description?: string | null;
+
+  @ApiProperty()
+  price: number;
+
+  @ApiProperty()
+  enabled: boolean;
+
+  @ApiProperty()
+  bonus_credit: number;
+
+  @ApiPropertyOptional({ nullable: true })
+  created_at?: Date | null;
+
+  @ApiPropertyOptional({ type: PromptFileResponse, nullable: true })
+  cover?: PromptFileResponse | null;
+
+  @ApiProperty({ type: [PromptFileResponse] })
+  files: PromptFileResponse[];
+
+  @ApiProperty({ type: [PromptLabelResponse] })
+  labels: PromptLabelResponse[];
+
+  @ApiProperty({ type: PromptUserStateResponse })
+  user_state: PromptUserStateResponse;
+}
+
+export class CartItemResponse {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  item_type: string;
+
+  @ApiProperty()
+  quantity: number;
+
+  @ApiProperty()
+  created_at: Date;
+
+  @ApiPropertyOptional({ type: PromptResponse, nullable: true })
+  item?: PromptResponse | null;
+}
+
+export class OrderCheckoutResponse {
+  @ApiProperty()
+  checkout_url: string;
+}
+
+export class OrderLineItemResponse {
+  @ApiProperty()
+  item_type: string;
+
+  @ApiProperty()
+  quantity: number;
+
+  @ApiProperty()
+  unit_price: number;
+
+  @ApiProperty()
+  amount: number;
+
+  @ApiPropertyOptional({ type: PromptResponse, nullable: true })
+  item?: PromptResponse | null;
+}
+
+export class OrderResponse {
+  @ApiProperty()
+  uuid: string;
+
+  @ApiProperty()
+  status: string;
+
+  @ApiProperty()
+  amount: number;
+
+  @ApiProperty()
+  currency: string;
+
+  @ApiProperty()
+  created_at: Date;
+
+  @ApiProperty({ type: [OrderLineItemResponse] })
+  items: OrderLineItemResponse[];
 }
 
 export class UpdateUserInfoRequest {

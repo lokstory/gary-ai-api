@@ -1,6 +1,6 @@
 import { Controller, Get, Param } from '@nestjs/common';
 import { AppService } from './app.service';
-import { RedisService } from './redis/redis.service';
+import { RedisService } from './modules/redis/redis.service';
 import { s3Client } from './components/aws-s3.client';
 import { ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { RestResponse } from './models/rest.response';
