@@ -20,3 +20,16 @@ export enum PaymentProvider {
 export enum OrderItemType {
   PROMPT = 'PROMPT',
 }
+
+export enum FileCategory {
+  COVER = 'COVER',
+  MEDIA = 'MEDIA',
+  THUMBNAIL = 'THUMBNAIL',
+  DOWNLOAD = 'DOWNLOAD',
+}
+
+export enum FileType {
+  IMAGE = 'IMAGE',
+  VIDEO = 'VIDEO',
+  PDF = 'PDF',
+}

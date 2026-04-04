@@ -119,6 +119,12 @@ export class UserInfoResponse {
 
 export class PromptFileResponse {
   @ApiProperty()
+  uuid: string;
+
+  @ApiProperty()
+  category: string;
+
+  @ApiProperty()
   file_type: string;
 
   @ApiProperty()
@@ -174,6 +180,9 @@ export class PromptResponse {
 
   @ApiPropertyOptional({ type: PromptFileResponse, nullable: true })
   cover?: PromptFileResponse | null;
+
+  @ApiPropertyOptional({ type: PromptFileResponse, nullable: true })
+  pdf?: PromptFileResponse | null;
 
   @ApiProperty({ type: [PromptFileResponse] })
   files: PromptFileResponse[];

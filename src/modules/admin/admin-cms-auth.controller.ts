@@ -1,5 +1,5 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { ApiOperation } from '@nestjs/swagger';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   AdminLoginRequest,
   AdminLoginResponse,
@@ -8,6 +8,7 @@ import { RestResponse } from '../../models/rest.response';
 import { ApiRestResponse } from '../../components/api-response.decorator';
 import { AdminAuthService } from './admin-auth.service';
 
+@ApiTags('CMS Auth')
 @Controller('cms/auth')
 export class AdminCmsAuthController {
   constructor(private readonly adminAuthService: AdminAuthService) {}

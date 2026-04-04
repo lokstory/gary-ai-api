@@ -29,20 +29,27 @@ model users {
 }
 
 model files {
-  id         BigInt    @id @default(autoincrement())
-  uuid       String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ref_table  String
-  ref_id     BigInt
-  file_type  String
-  position   Int       @default(0)
-  bucket     String?   @db.VarChar(128)
-  url        String
-  metadata   Json?
-  created_at DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+  id          BigInt    @id @default(autoincrement())
+  uuid        String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ref_table   String    @db.VarChar(128)
+  ref_id      BigInt
+  category    String    @db.VarChar(64)
+  file_type   String    @db.VarChar(64)
+  parent_id   BigInt?
+  position    Int       @default(0)
+  bucket      String    @db.VarChar(64)
+  url         String
+  metadata    Json?
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime? @default(now()) @db.Timestamptz(6)
+  files       files?    @relation("filesTofiles", fields: [parent_id], references: [id], onUpdate: NoAction, map: "fk_files_parent_id")
+  other_files files[]   @relation("filesTofiles")
 
   @@index([file_type], map: "idx_files_file_type")
   @@index([ref_table, ref_id], map: "idx_files_ref_table_ref_id")
+  @@index([category], map: "idx_files_category")
+  @@index([parent_id], map: "idx_files_parent_id")
+  @@index([ref_table, ref_id, category, position], map: "idx_files_ref_table_ref_id_category_position")
 }
 
 model kv_store {

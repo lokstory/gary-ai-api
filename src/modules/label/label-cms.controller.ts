@@ -9,7 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   AdminLabelResponse,
   AdminCreateLabelRequest,
@@ -28,6 +28,7 @@ import {
   ApiRestResponse,
 } from '../../components/api-response.decorator';
 
+@ApiTags('CMS Labels')
 @Controller('cms/labels')
 @ApiBearerAuth(SwaggerBearer.ADMIN)
 @UseGuards(AdminJwtAuthGuard)

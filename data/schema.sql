@@ -61,24 +61,37 @@ CREATE INDEX idx_prompts_description
 
 CREATE TABLE files
 (
-  id         BIGSERIAL PRIMARY KEY,
-  uuid       UUID         NOT NULL    DEFAULT gen_random_uuid() UNIQUE,
-  ref_table  TEXT         NOT NULL,
-  ref_id     BIGINT       NOT NULL,
-  file_type  TEXT         NOT NULL,
-  position   INT          NOT NULL    DEFAULT 0,
-  bucket     VARCHAR(128) NULL,
-  url        TEXT         NOT NULL,
-  metadata   JSONB        NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  id          BIGSERIAL PRIMARY KEY,
+  uuid        UUID         NOT NULL    DEFAULT gen_random_uuid() UNIQUE,
+  ref_table   VARCHAR(128) NOT NULL,
+  ref_id      BIGINT       NOT NULL,
+  category    VARCHAR(64)  NOT NULL,
+  file_type   VARCHAR(64)  NOT NULL,
+  parent_id   BIGINT       NULL,
+  position    INT          NOT NULL    DEFAULT 0,
+  bucket      VARCHAR(64)  NOT NULL,
+  url         TEXT         NOT NULL,
+  metadata    JSONB        NULL,
+  created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT fk_files_parent_id
+    FOREIGN KEY (parent_id) REFERENCES files (id) ON DELETE SET NULL
 );
 
 CREATE INDEX idx_files_ref_table_ref_id
   ON files (ref_table, ref_id);
 
+CREATE INDEX idx_files_category
+  ON files (category);
+
 CREATE INDEX idx_files_file_type
   ON files (file_type);
+
+CREATE INDEX idx_files_parent_id
+  ON files (parent_id);
+
+CREATE INDEX idx_files_ref_table_ref_id_category_position
+  ON files (ref_table, ref_id, category, position);
 
 CREATE TABLE user_prompt_favorites
 (

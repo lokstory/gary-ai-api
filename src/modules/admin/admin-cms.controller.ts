@@ -1,5 +1,5 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SwaggerBearer } from '../../models/constants';
 import { RestResponse } from '../../models/rest.response';
 import { ApiRestResponse } from '../../components/api-response.decorator';
@@ -9,6 +9,7 @@ import { AppException } from '../../models/app.exception';
 import { AppCode } from '../../models/app.code';
 import { AdminMeResponse } from '../../models/admin-api.io';
 
+@ApiTags('CMS Admins')
 @Controller('cms/admins')
 export class AdminCmsController {
   constructor(private readonly adminService: AdminService) {}
