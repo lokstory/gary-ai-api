@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsObject,
   IsOptional,
@@ -16,9 +17,11 @@ import { PASSWORD_REGEX } from './constants';
 import { Type } from 'class-transformer';
 import {
   PageQuery,
+  PromptCategoryResponse,
   PromptFileResponse,
   PromptLabelResponse,
 } from './user-api.io';
+import { MediaType } from './enums';
 
 export class AdminLoginRequest {
   @ApiProperty({ example: 'admin' })
@@ -135,6 +138,74 @@ export class AdminLabelResponse {
   updated_at: Date;
 }
 
+export class AdminListCategoriesQuery extends PageQuery {
+  @ApiPropertyOptional({ description: 'Search category code or name' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
+export class AdminCreateCategoryRequest {
+  @ApiProperty({ example: 'portrait' })
+  @IsString({
+    context: { code: AppCode.PARAMETER_ERROR[0] },
+  })
+  @MinLength(1)
+  @MaxLength(100)
+  code: string;
+
+  @ApiProperty({ example: 'Portrait' })
+  @IsString({
+    context: { code: AppCode.PARAMETER_ERROR[0] },
+  })
+  @MinLength(1)
+  @MaxLength(255)
+  name: string;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  enabled?: boolean;
+}
+
+export class AdminUpdateCategoryRequest {
+  @ApiPropertyOptional({ example: 'portrait' })
+  @IsOptional()
+  @IsString({
+    context: { code: AppCode.PARAMETER_ERROR[0] },
+  })
+  @MinLength(1)
+  @MaxLength(100)
+  code?: string;
+
+  @ApiPropertyOptional({ example: 'Portrait' })
+  @IsOptional()
+  @IsString({
+    context: { code: AppCode.PARAMETER_ERROR[0] },
+  })
+  @MinLength(1)
+  @MaxLength(255)
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  enabled?: boolean;
+}
+
+export class AdminCategoryResponse extends PromptCategoryResponse {
+  @ApiProperty()
+  enabled: boolean;
+
+  @ApiProperty()
+  created_at: Date;
+
+  @ApiProperty()
+  updated_at: Date;
+}
+
 export class AdminTestUploadResponse {
   @ApiProperty()
   bucket: string;
@@ -160,6 +231,18 @@ export class AdminCreatePromptRequest {
   @IsOptional()
   @IsString({ context: { code: AppCode.PARAMETER_ERROR[0] } })
   description?: string;
+
+  @ApiPropertyOptional({ enum: MediaType, nullable: true })
+  @IsOptional()
+  @IsEnum(MediaType, { context: { code: AppCode.PARAMETER_ERROR[0] } })
+  media_type?: MediaType | null;
+
+  @ApiPropertyOptional({ example: 1, nullable: true })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ context: { code: AppCode.PARAMETER_ERROR[0] } })
+  @Min(1)
+  category_id?: number | null;
 
   @ApiProperty({ example: 299 })
   @Type(() => Number)
@@ -193,6 +276,18 @@ export class AdminUpdatePromptRequest {
   @IsOptional()
   @IsString({ context: { code: AppCode.PARAMETER_ERROR[0] } })
   description?: string;
+
+  @ApiPropertyOptional({ enum: MediaType, nullable: true })
+  @IsOptional()
+  @IsEnum(MediaType, { context: { code: AppCode.PARAMETER_ERROR[0] } })
+  media_type?: MediaType | null;
+
+  @ApiPropertyOptional({ example: 1, nullable: true })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ context: { code: AppCode.PARAMETER_ERROR[0] } })
+  @Min(1)
+  category_id?: number | null;
 
   @ApiPropertyOptional({ example: 299 })
   @IsOptional()
@@ -240,6 +335,12 @@ export class CmsPromptResponse {
   @ApiProperty({ nullable: true })
   description: string | null;
 
+  @ApiPropertyOptional({ enum: MediaType, nullable: true })
+  media_type: MediaType | null;
+
+  @ApiPropertyOptional({ type: PromptCategoryResponse, nullable: true })
+  category: PromptCategoryResponse | null;
+
   @ApiProperty()
   price: number;
 
@@ -269,7 +370,8 @@ export class CmsPromptFilesResponse {
 
 export class CmsPromptFileMutationRequest {
   @ApiPropertyOptional({
-    description: 'Existing file primary key. Keep or replace this file when provided.',
+    description:
+      'Existing file primary key. Keep or replace this file when provided.',
     example: '10',
     oneOf: [{ type: 'string' }, { type: 'integer' }],
   })
@@ -277,7 +379,8 @@ export class CmsPromptFileMutationRequest {
   id?: string | number | null;
 
   @ApiPropertyOptional({
-    description: 'Multipart form-data file field name for the new uploaded file.',
+    description:
+      'Multipart form-data file field name for the new uploaded file.',
     example: 'cover_file',
   })
   @IsOptional()
@@ -293,7 +396,8 @@ export class CmsPromptFileMutationRequest {
   thumbnail_id?: string | number | null;
 
   @ApiPropertyOptional({
-    description: 'Multipart form-data file field name for the new uploaded thumbnail.',
+    description:
+      'Multipart form-data file field name for the new uploaded thumbnail.',
     example: 'cover_thumb',
   })
   @IsOptional()
@@ -321,7 +425,8 @@ export class CmsPromptDownloadMutationRequest {
   id?: string | number | null;
 
   @ApiPropertyOptional({
-    description: 'Multipart form-data file field name for the new uploaded pdf.',
+    description:
+      'Multipart form-data file field name for the new uploaded pdf.',
     example: 'pdf_file',
   })
   @IsOptional()

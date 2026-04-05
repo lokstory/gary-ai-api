@@ -33,3 +33,8 @@ export enum FileType {
   VIDEO = 'VIDEO',
   PDF = 'PDF',
 }
+
+export enum MediaType {
+  IMAGE = 'IMAGE',
+  VIDEO = 'VIDEO',
+}

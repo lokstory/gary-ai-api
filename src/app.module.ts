@@ -14,6 +14,7 @@ import { CartModule } from './modules/cart/cart.module';
 import { OrderModule } from './modules/order/order.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { LabelModule } from './modules/label/label.module';
+import { CategoryModule } from './modules/category/category.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { LabelModule } from './modules/label/label.module';
     OrderModule,
     AdminModule,
     LabelModule,
+    CategoryModule,
   ],
   controllers: [AppController, TestController],
   providers: [AppService],

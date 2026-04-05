@@ -70,7 +70,10 @@ model prompts {
   enabled               Boolean                 @default(false)
   created_at            DateTime?               @default(now()) @db.Timestamptz(6)
   updated_at            DateTime?               @default(now()) @db.Timestamptz(6)
+  media_type            String?                 @db.VarChar(16)
+  category_id           Int?
   prompt_labels         prompt_labels[]
+  categories            categories?             @relation(fields: [category_id], references: [id], map: "fk_prompts_category_id")
   user_prompt_favorites user_prompt_favorites[]
   user_prompts          user_prompts[]
 
@@ -195,6 +198,19 @@ model labels {
 
   @@index([created_at], map: "idx_labels_created_at")
   @@index([enabled], map: "idx_labels_enabled")
+}
+
+model categories {
+  id         Int       @id(map: "pk_categories") @default(autoincrement())
+  code       String    @unique(map: "uk_categories_code") @db.VarChar(100)
+  name       String    @unique(map: "uk_categories_name") @db.VarChar(255)
+  enabled    Boolean   @default(true)
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @db.Timestamptz(6)
+  prompts    prompts[]
+
+  @@index([created_at], map: "idx_categories_created_at")
+  @@index([enabled], map: "idx_categories_enabled")
 }
 
 model prompt_labels {

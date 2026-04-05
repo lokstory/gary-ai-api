@@ -2,9 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryMode } from '../../../generated/prisma/internal/prismaNamespace';
 import { FileService, UploadedBinaryFile } from '../file/file.service';
-import { files, prompts } from '../../../generated/prisma/client';
+import { categories, files, prompts } from '../../../generated/prisma/client';
 import { PageQuery, PromptFileResponse } from '../../models/user-api.io';
-import { FileCategory, FileType } from '../../models/enums';
+import { FileCategory, FileType, MediaType } from '../../models/enums';
 import { isEnumEqual } from '../../utils/enum.util';
 import {
   AdminCreatePromptRequest,
@@ -61,21 +61,49 @@ export class PromptService {
     page = 1,
     pageSize = 20,
     search,
+    mediaType,
+    categoryCode,
   }: {
     page?: number;
     pageSize?: number;
     search?: string;
+    mediaType?: MediaType;
+    categoryCode?: string;
   }) {
     const skip = (page - 1) * pageSize;
-
-    const where = search
-      ? {
-          OR: [
-            { name: { contains: search, mode: QueryMode.insensitive } },
-            { description: { contains: search, mode: QueryMode.insensitive } },
-          ],
-        }
-      : {};
+    const where = {
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: QueryMode.insensitive } },
+              {
+                description: {
+                  contains: search,
+                  mode: QueryMode.insensitive,
+                },
+              },
+            ],
+          }
+        : {}),
+      ...(mediaType
+        ? {
+            media_type: {
+              equals: mediaType,
+              mode: QueryMode.insensitive,
+            },
+          }
+        : {}),
+      ...(categoryCode
+        ? {
+            categories: {
+              code: {
+                equals: categoryCode,
+                mode: QueryMode.insensitive,
+              },
+            },
+          }
+        : {}),
+    };
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.prompts.findMany({
@@ -112,10 +140,14 @@ export class PromptService {
   }
 
   async createPrompt(input: AdminCreatePromptRequest): Promise<prompts> {
+    const categoryId = await this.ensureCategoryExists(input.category_id);
+
     return this.prisma.prompts.create({
       data: {
         name: input.name,
         description: input.description ?? null,
+        media_type: input.media_type ?? null,
+        category_id: categoryId,
         price: input.price,
         bonus_credit: input.bonus_credit ?? 0,
         enabled: input.enabled ?? false,
@@ -132,6 +164,11 @@ export class PromptService {
       throw new AppException({ code: AppCode.NOT_FOUND });
     }
 
+    const categoryId =
+      input.category_id !== undefined
+        ? await this.ensureCategoryExists(input.category_id)
+        : undefined;
+
     return this.prisma.prompts.update({
       where: { id: existing.id },
       data: {
@@ -139,6 +176,10 @@ export class PromptService {
         ...(input.description !== undefined
           ? { description: input.description }
           : {}),
+        ...(input.media_type !== undefined
+          ? { media_type: input.media_type }
+          : {}),
+        ...(categoryId !== undefined ? { category_id: categoryId } : {}),
         ...(input.price !== undefined ? { price: input.price } : {}),
         ...(input.bonus_credit !== undefined
           ? { bonus_credit: input.bonus_credit }
@@ -154,11 +195,23 @@ export class PromptService {
       uuid: prompt.uuid,
       name: prompt.name,
       description: prompt.description,
+      media_type: (prompt.media_type as MediaType | null) ?? null,
+      category: null,
       price: prompt.price,
       bonus_credit: prompt.bonus_credit,
       enabled: prompt.enabled,
       created_at: prompt.created_at ?? null,
       updated_at: prompt.updated_at ?? null,
+    };
+  }
+
+  async toAdminResponseWithCategory(
+    prompt: prompts,
+  ): Promise<CmsPromptResponse> {
+    const categoryMap = await this.attachCategoriesToPrompts([prompt]);
+    return {
+      ...this.toAdminResponse(prompt),
+      category: categoryMap.get(prompt.id) ?? null,
     };
   }
 
@@ -172,7 +225,8 @@ export class PromptService {
       throw new AppException({ code: AppCode.NOT_FOUND });
     }
 
-    const payload: UpdatePromptFilesPayload = this.parseUpdatePromptFilesPayload(payloadRaw);
+    const payload: UpdatePromptFilesPayload =
+      this.parseUpdatePromptFilesPayload(payloadRaw);
     const existingFiles = await this.prisma.files.findMany({
       where: {
         ref_table: 'prompts',
@@ -421,12 +475,14 @@ export class PromptService {
   ): Promise<CmsPromptDetailResponse> {
     const fileMap = await this.attachFilesToPrompts([prompt]);
     const labelMap = await this.attachLabelsToPrompts([prompt]);
+    const categoryMap = await this.attachCategoriesToPrompts([prompt]);
     const files = fileMap.get(prompt.id) || [];
     const labels = labelMap.get(prompt.id) || [];
+    const category = categoryMap.get(prompt.id) ?? null;
     const assets = this.toAdminPromptFilesResponse(files);
 
     return {
-      ...this.toAdminResponse(prompt),
+      ...(await this.toAdminResponseWithCategory(prompt)),
       cover: assets.cover ?? null,
       pdf: assets.pdf ?? null,
       files: assets.files,
@@ -438,6 +494,7 @@ export class PromptService {
     prompt: prompts,
     fileMap: Map<bigint, PromptFileItem[]>,
     labelMap: Map<bigint, { code: string; name: string }[]>,
+    categoryMap: Map<bigint, { id: number; code: string; name: string } | null>,
     stateMap: Map<bigint, { is_favorite: boolean; purchased: boolean }>,
   ) {
     const files = fileMap.get(prompt.id) || [];
@@ -451,6 +508,7 @@ export class PromptService {
       isEnumEqual(FileCategory.MEDIA, file.category),
     );
     const labels = labelMap.get(prompt.id) || [];
+    const category = categoryMap.get(prompt.id) ?? null;
     const userState = stateMap.get(prompt.id) || {
       is_favorite: false,
       purchased: false,
@@ -463,6 +521,8 @@ export class PromptService {
       price: prompt.price,
       enabled: prompt.enabled,
       bonus_credit: prompt.bonus_credit,
+      media_type: (prompt.media_type as MediaType | null) ?? null,
+      category,
       created_at: prompt.created_at,
       cover: coverFile ? this.toPromptFileResponse(coverFile) : null,
       pdf: downloadFile
@@ -480,13 +540,74 @@ export class PromptService {
 
     const fileMap = await this.attachFilesToPrompts(prompts);
     const labelMap = await this.attachLabelsToPrompts(prompts);
+    const categoryMap = await this.attachCategoriesToPrompts(prompts);
     const userStateMap = userId
       ? await this.attachUserStateToPrompts(userId, prompts)
       : new Map();
 
     return prompts.map((p) =>
-      this.createPromptResponse(p, fileMap, labelMap, userStateMap),
+      this.createPromptResponse(
+        p,
+        fileMap,
+        labelMap,
+        categoryMap,
+        userStateMap,
+      ),
     );
+  }
+
+  async attachCategoriesToPrompts<
+    T extends { id: bigint; category_id?: number | null },
+  >(
+    items: T[],
+  ): Promise<Map<bigint, { id: number; code: string; name: string } | null>> {
+    const categoryMap = new Map<
+      bigint,
+      { id: number; code: string; name: string } | null
+    >();
+    if (!items.length) return categoryMap;
+
+    const categoryIds = Array.from(
+      new Set(
+        items
+          .map((item) => item.category_id)
+          .filter(
+            (item): item is number => item !== null && item !== undefined,
+          ),
+      ),
+    );
+
+    const categoriesById = new Map<number, categories>();
+    if (categoryIds.length) {
+      const categoryItems = await this.prisma.categories.findMany({
+        where: { id: { in: categoryIds } },
+      });
+
+      categoryItems.forEach((category) => {
+        categoriesById.set(category.id, category);
+      });
+    }
+
+    items.forEach((item) => {
+      if (!item.category_id) {
+        categoryMap.set(item.id, null);
+        return;
+      }
+
+      const category = categoriesById.get(item.category_id) ?? null;
+      categoryMap.set(
+        item.id,
+        category
+          ? {
+              id: category.id,
+              code: category.code,
+              name: category.name,
+            }
+          : null,
+      );
+    });
+
+    return categoryMap;
   }
 
   async listFavoritePrompts(userId: bigint, options: PageQuery) {
@@ -569,6 +690,28 @@ export class PromptService {
         message: 'payload must be a valid JSON object',
       });
     }
+  }
+
+  private async ensureCategoryExists(categoryId?: number | null) {
+    if (categoryId === undefined) {
+      return undefined;
+    }
+
+    if (categoryId === null) {
+      return null;
+    }
+
+    const category = await this.prisma.categories.findUnique({
+      where: { id: categoryId },
+    });
+    if (!category) {
+      throw new AppException({
+        code: AppCode.PARAMETER_ERROR,
+        message: 'category_id not found',
+      });
+    }
+
+    return category.id;
   }
 
   private parsePositiveBigIntId(

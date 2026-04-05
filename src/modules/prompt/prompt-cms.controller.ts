@@ -90,7 +90,9 @@ export class PromptCmsController {
   @Post()
   async createPrompt(@Body() input: AdminCreatePromptRequest) {
     const prompt = await this.promptService.createPrompt(input);
-    return RestResponse.success(this.promptService.toAdminResponse(prompt));
+    return RestResponse.success(
+      await this.promptService.toAdminResponseWithCategory(prompt),
+    );
   }
 
   @ApiOperation({ summary: 'Update prompt' })
@@ -101,7 +103,9 @@ export class PromptCmsController {
     @Body() input: AdminUpdatePromptRequest,
   ) {
     const prompt = await this.promptService.updatePromptById(id, input);
-    return RestResponse.success(this.promptService.toAdminResponse(prompt));
+    return RestResponse.success(
+      await this.promptService.toAdminResponseWithCategory(prompt),
+    );
   }
 
   @ApiOperation({ summary: 'Update prompt files' })

@@ -40,17 +40,43 @@ CREATE INDEX idx_users_created_at
   ON users (created_at);
 
 
+CREATE TABLE categories
+(
+  id         SERIAL,
+  code       VARCHAR(100)  NOT NULL,
+  name       VARCHAR(255)  NOT NULL,
+  enabled    BOOLEAN       NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  CONSTRAINT pk_categories
+    PRIMARY KEY (id),
+  CONSTRAINT uk_categories_code
+    UNIQUE (code),
+  CONSTRAINT uk_categories_name
+    UNIQUE (name)
+);
+
+CREATE INDEX idx_categories_enabled
+  ON categories (enabled);
+
+CREATE INDEX idx_categories_created_at
+  ON categories (created_at);
+
 CREATE TABLE prompts
 (
   id           BIGSERIAL PRIMARY KEY,
   uuid         UUID    NOT NULL         DEFAULT gen_random_uuid() UNIQUE,
   name         TEXT    NOT NULL,
   description  TEXT,
+  media_type   VARCHAR(16),
+  category_id  INT,
   price        INTEGER NOT NULL,
   bonus_credit INTEGER NOT NULL         DEFAULT 0,
   enabled      BOOLEAN NOT NULL         DEFAULT FALSE,
   created_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT fk_prompts_category_id
+    FOREIGN KEY (category_id) REFERENCES categories (id) ON UPDATE CASCADE ON DELETE SET NULL
 );
 
 CREATE INDEX idx_prompts_name
@@ -58,6 +84,12 @@ CREATE INDEX idx_prompts_name
 
 CREATE INDEX idx_prompts_description
   ON prompts (description);
+
+CREATE INDEX idx_prompts_category_id
+  ON prompts (category_id);
+
+CREATE INDEX idx_prompts_media_type
+  ON prompts (media_type);
 
 CREATE TABLE files
 (

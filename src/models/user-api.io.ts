@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -13,6 +14,7 @@ import {
 import { PASSWORD_REGEX } from './constants';
 import { AppCode } from './app.code';
 import { Type } from 'class-transformer';
+import { MediaType } from './enums';
 
 export class PageQuery {
   @ApiPropertyOptional({ default: 1 })
@@ -97,9 +99,20 @@ export class AuthLoginResponse {
 }
 
 export class ListPromptsQuery extends PageQuery {
-  @ApiPropertyOptional({ description: 'Search name or description' })
+  @ApiPropertyOptional({ description: 'Search prompt name or description' })
   @IsOptional()
+  @IsString()
   search?: string;
+
+  @ApiPropertyOptional({ description: 'Prompt media type' })
+  @IsOptional()
+  @IsEnum(MediaType, { context: { code: AppCode.PARAMETER_ERROR[0] } })
+  media_type?: MediaType;
+
+  @ApiPropertyOptional({ description: 'Filter by category code' })
+  @IsOptional()
+  @IsString()
+  category?: string;
 }
 
 export class UserInfoResponse {
@@ -148,6 +161,17 @@ export class PromptLabelResponse {
   name: string;
 }
 
+export class PromptCategoryResponse {
+  @ApiProperty()
+  id: number;
+
+  @ApiProperty()
+  code: string;
+
+  @ApiProperty()
+  name: string;
+}
+
 export class PromptUserStateResponse {
   @ApiProperty()
   is_favorite: boolean;
@@ -174,6 +198,12 @@ export class PromptResponse {
 
   @ApiProperty()
   bonus_credit: number;
+
+  @ApiPropertyOptional({ enum: MediaType, nullable: true })
+  media_type?: MediaType | null;
+
+  @ApiPropertyOptional({ type: PromptCategoryResponse, nullable: true })
+  category?: PromptCategoryResponse | null;
 
   @ApiPropertyOptional({ nullable: true })
   created_at?: Date | null;

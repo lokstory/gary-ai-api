@@ -46,6 +46,8 @@ export class PromptController {
         page: query.page,
         pageSize: query.page_size,
         search: query.search,
+        mediaType: query.media_type,
+        categoryCode: query.category,
       });
 
     const data = await this.promptsService.promptsToResponses(items, userId);
