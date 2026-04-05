@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '../../../generated/prisma/client';
+import { createHash } from 'crypto';
 import {
   OrderItemType,
   OrderStatus,
@@ -14,9 +16,36 @@ import { PromptService } from '../prompt/prompt.service';
 import { PageQuery } from '../../models/user-api.io';
 import { isEnumEqual } from '../../utils/enum.util';
 
+type CheckoutLineItem = {
+  item_type: string;
+  item_id: bigint;
+  quantity: number;
+  unit_price: number;
+  amount: number;
+  name: string;
+};
+
+type CheckoutResult = {
+  checkout_url: string;
+  order_uuid: string;
+  expires_at: Date | null;
+};
+
+type CheckoutDbClient = PrismaService | Prisma.TransactionClient;
+
+type PendingCheckoutRow = {
+  order_id: bigint;
+  order_uuid: string;
+  payment_id: bigint;
+  checkout_url: string | null;
+  expires_at: Date | null;
+  provider_session_id: string | null;
+};
+
 @Injectable()
 export class OrderService implements OnModuleInit {
   private readonly logger = new Logger(OrderService.name);
+  private static readonly REUSE_CHECKOUT_WINDOW_MS = 60 * 60 * 1000;
   private stripe: Stripe;
 
   constructor(
@@ -29,7 +58,7 @@ export class OrderService implements OnModuleInit {
     this.stripe = new Stripe(this.config.getOrThrow('STRIPE_SECRET_KEY'));
   }
 
-  async checkoutFromCart(userId: bigint): Promise<{ checkout_url: string }> {
+  async checkoutFromCart(userId: bigint): Promise<CheckoutResult> {
     const cartItems = await this.prisma.cart_items.findMany({
       where: { user_id: userId },
     });
@@ -69,16 +98,14 @@ export class OrderService implements OnModuleInit {
       })
       .filter((i): i is NonNullable<typeof i> => i !== null);
 
-    const totalAmount = lineItems.reduce((sum, i) => sum + i.amount, 0);
-
-    return this._createOrderAndSession(userId, lineItems, totalAmount);
+    return this.checkout(userId, lineItems);
   }
 
   async checkoutDirect(
     userId: bigint,
     itemType: string,
     itemId: bigint,
-  ): Promise<{ checkout_url: string } | null> {
+  ): Promise<CheckoutResult | null> {
     let name = '';
     let unitPrice = 0;
 
@@ -104,89 +131,305 @@ export class OrderService implements OnModuleInit {
       },
     ];
 
-    return this._createOrderAndSession(userId, lineItems, unitPrice);
+    return this.checkout(userId, lineItems);
   }
 
-  private async _createOrderAndSession(
+  private async checkout(
     userId: bigint,
-    lineItems: {
-      item_type: string;
-      item_id: bigint;
-      quantity: number;
-      unit_price: number;
-      amount: number;
-      name: string;
-    }[],
-    totalAmount: number,
-  ): Promise<{ checkout_url: string }> {
-    const promptIds = lineItems
-      .filter((i) => isEnumEqual(OrderItemType.PROMPT, i.item_type))
-      .map((i) => i.item_id);
+    lineItems: CheckoutLineItem[],
+  ): Promise<CheckoutResult> {
+    const fingerprint = this.buildLineItemsFingerprint(lineItems);
+    const now = new Date();
+    const totalAmount = this.calculateTotalAmount(lineItems);
 
-    if (promptIds.length) {
-      const existing = await this.prisma.user_prompts.findFirst({
-        where: { user_id: userId, prompt_id: { in: promptIds } },
-      });
-      if (existing) {
-        throw new AppException({ code: AppCode.ORDER_ITEM_ALREADY_PURCHASED });
-      }
-    }
+    const prepared = await this.prisma.$transaction(async (tx) => {
+      await this.acquireCheckoutLock(tx, userId, fingerprint);
+      await this.ensurePromptsNotPurchased(tx, userId, lineItems);
 
-    const successUrl = this.config.getOrThrow<string>('STRIPE_SUCCESS_URL');
-    const cancelUrl = this.config.getOrThrow<string>('STRIPE_CANCEL_URL');
-
-    const order = await this.prisma.$transaction(async (tx) => {
-      const newOrder = await tx.orders.create({
-        data: {
-          user_id: userId,
-          status: OrderStatus.PENDING,
-          amount: totalAmount,
-          currency: 'TWD',
-        },
-      });
-
-      await tx.order_items.createMany({
-        data: lineItems.map((i) => ({
-          order_id: newOrder.id,
-          item_type: i.item_type,
-          item_id: i.item_id,
-          quantity: i.quantity,
-          unit_price: i.unit_price,
-          amount: i.amount,
-        })),
-      });
-
-      const itemsByType = lineItems.reduce<Record<string, typeof lineItems>>(
-        (acc, i) => {
-          (acc[i.item_type] ??= []).push(i);
-          return acc;
-        },
-        {},
+      const existingCheckout = await this.findReusableCheckout(
+        tx,
+        userId,
+        fingerprint,
+        now,
       );
-      for (const [itemType, items] of Object.entries(itemsByType)) {
-        await tx.cart_items.deleteMany({
-          where: {
-            user_id: userId,
-            item_type: itemType,
-            item_id: { in: items.map((i) => i.item_id) },
-          },
-        });
+      if (existingCheckout) {
+        return {
+          type: 'reuse' as const,
+          payload: existingCheckout,
+        };
       }
 
-      return newOrder;
+      const staleSessionIds = await this.cancelPendingCheckouts(
+        tx,
+        userId,
+        fingerprint,
+        now,
+      );
+      const order = await this.createPendingOrder(
+        tx,
+        userId,
+        fingerprint,
+        lineItems,
+        totalAmount,
+      );
+
+      return {
+        type: 'create' as const,
+        order,
+        staleSessionIds,
+      };
     });
 
-    const stripeItems = lineItems.map((i) => ({
+    if (prepared.type === 'reuse') {
+      return prepared.payload;
+    }
+
+    await this.expireStripeSessions(prepared.staleSessionIds);
+
+    return this.createStripeCheckout(prepared.order, lineItems);
+  }
+
+  private async acquireCheckoutLock(
+    tx: Prisma.TransactionClient,
+    userId: bigint,
+    fingerprint: string,
+  ) {
+    const userLockKey = this.hashLockKey(userId.toString());
+    const fingerprintLockKey = this.hashLockKey(fingerprint);
+
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${userLockKey}, ${fingerprintLockKey})`;
+  }
+
+  private hashLockKey(input: string): number {
+    let hash = 0;
+
+    for (let i = 0; i < input.length; i += 1) {
+      hash = (hash * 31 + input.charCodeAt(i)) | 0;
+    }
+
+    return hash;
+  }
+
+  private buildLineItemsFingerprint(lineItems: CheckoutLineItem[]): string {
+    const rawFingerprint = [...lineItems]
+      .sort((a, b) => {
+        if (a.item_type !== b.item_type) {
+          return a.item_type.localeCompare(b.item_type);
+        }
+
+        if (a.item_id === b.item_id) {
+          return a.quantity - b.quantity;
+        }
+
+        return a.item_id < b.item_id ? -1 : 1;
+      })
+      .map(
+        (item) =>
+          `${item.item_type}:${item.item_id.toString()}:${item.quantity}`,
+      )
+      .join(';');
+
+    return createHash('sha256').update(rawFingerprint).digest('hex');
+  }
+
+  private calculateTotalAmount(lineItems: CheckoutLineItem[]) {
+    return lineItems.reduce((sum, item) => sum + item.amount, 0);
+  }
+
+  private async ensurePromptsNotPurchased(
+    db: CheckoutDbClient,
+    userId: bigint,
+    lineItems: CheckoutLineItem[],
+  ) {
+    const promptIds = lineItems
+      .filter((item) => isEnumEqual(OrderItemType.PROMPT, item.item_type))
+      .map((item) => item.item_id);
+
+    if (!promptIds.length) return;
+
+    const existing = await db.user_prompts.findFirst({
+      where: { user_id: userId, prompt_id: { in: promptIds } },
+    });
+
+    if (existing) {
+      throw new AppException({ code: AppCode.ORDER_ITEM_ALREADY_PURCHASED });
+    }
+  }
+
+  private async findReusableCheckout(
+    db: CheckoutDbClient,
+    userId: bigint,
+    fingerprint: string,
+    now: Date,
+  ): Promise<CheckoutResult | null> {
+    const pendingCheckouts = await this.findPendingCheckoutsByFingerprint(
+      db,
+      userId,
+      fingerprint,
+    );
+
+    for (const checkout of pendingCheckouts) {
+      if (!checkout.checkout_url || !checkout.expires_at) {
+        continue;
+      }
+
+      if (!this.hasReusableCheckoutWindow(checkout.expires_at, now)) {
+        continue;
+      }
+
+      return {
+        checkout_url: checkout.checkout_url,
+        order_uuid: checkout.order_uuid,
+        expires_at: checkout.expires_at,
+      };
+    }
+
+    return null;
+  }
+
+  private hasReusableCheckoutWindow(expiresAt: Date, now: Date) {
+    return (
+      expiresAt.getTime() - now.getTime() >=
+      OrderService.REUSE_CHECKOUT_WINDOW_MS
+    );
+  }
+
+  private async cancelPendingCheckouts(
+    tx: Prisma.TransactionClient,
+    userId: bigint,
+    fingerprint: string,
+    now: Date,
+  ) {
+    const stalePayments = (
+      await this.findPendingCheckoutsByFingerprint(tx, userId, fingerprint)
+    )
+      .filter(
+        (checkout) =>
+          checkout.expires_at &&
+          !this.hasReusableCheckoutWindow(checkout.expires_at, now),
+      )
+      .map((checkout) => ({
+        paymentId: checkout.payment_id,
+        orderId: checkout.order_id,
+        sessionId: checkout.provider_session_id,
+      }));
+
+    if (!stalePayments.length) {
+      return [];
+    }
+
+    await tx.payments.updateMany({
+      where: { id: { in: stalePayments.map((item) => item.paymentId) } },
+      data: { status: PaymentStatus.CANCELLED },
+    });
+
+    await tx.orders.updateMany({
+      where: { id: { in: stalePayments.map((item) => item.orderId) } },
+      data: { status: OrderStatus.CANCELLED },
+    });
+
+    return stalePayments
+      .map((item) => item.sessionId)
+      .filter((item): item is string => Boolean(item));
+  }
+
+  private async expireStripeSessions(sessionIds: string[]) {
+    for (const sessionId of sessionIds) {
+      try {
+        await this.stripe.checkout.sessions.expire(sessionId);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to expire Stripe session ${sessionId}: ${error.message}`,
+        );
+      }
+    }
+  }
+
+  private async createPendingOrder(
+    tx: Prisma.TransactionClient,
+    userId: bigint,
+    fingerprint: string,
+    lineItems: CheckoutLineItem[],
+    totalAmount: number,
+  ) {
+    const order = await tx.orders.create({
+      data: {
+        user_id: userId,
+        status: OrderStatus.PENDING,
+        amount: totalAmount,
+        currency: 'TWD',
+      },
+    });
+
+    await tx.$executeRaw`
+      UPDATE orders
+      SET fingerprint = ${fingerprint}
+      WHERE id = ${order.id}
+    `;
+
+    await tx.order_items.createMany({
+      data: lineItems.map((item) => ({
+        order_id: order.id,
+        item_type: item.item_type,
+        item_id: item.item_id,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        amount: item.amount,
+      })),
+    });
+
+    return order;
+  }
+
+  private async findPendingCheckoutsByFingerprint(
+    db: CheckoutDbClient,
+    userId: bigint,
+    fingerprint: string,
+  ): Promise<PendingCheckoutRow[]> {
+    return db.$queryRaw<PendingCheckoutRow[]>`
+      SELECT
+        o.id AS order_id,
+        o.uuid AS order_uuid,
+        p.id AS payment_id,
+        p.checkout_url,
+        p.expires_at,
+        p.provider_session_id
+      FROM orders o
+      JOIN LATERAL (
+        SELECT
+          id,
+          checkout_url,
+          expires_at,
+          provider_session_id
+        FROM payments
+        WHERE order_id = o.id
+          AND provider = ${PaymentProvider.STRIPE}
+          AND status = ${PaymentStatus.PENDING}
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) p ON true
+      WHERE o.user_id = ${userId}
+        AND o.status = ${OrderStatus.PENDING}
+        AND o.fingerprint = ${fingerprint}
+      ORDER BY o.created_at DESC
+      LIMIT 10
+    `;
+  }
+
+  private async createStripeCheckout(
+    order: { id: bigint; uuid: string },
+    lineItems: CheckoutLineItem[],
+  ): Promise<CheckoutResult> {
+    const successUrl = this.config.getOrThrow<string>('STRIPE_SUCCESS_URL');
+    const cancelUrl = this.config.getOrThrow<string>('STRIPE_CANCEL_URL');
+    const stripeItems = lineItems.map((item) => ({
       price_data: {
         currency: 'twd',
-        unit_amount: i.unit_price * 100,
-        product_data: { name: i.name },
+        unit_amount: item.unit_price * 100,
+        product_data: { name: item.name },
       },
-      quantity: i.quantity,
+      quantity: item.quantity,
     }));
-
-    console.log('stripe items');
-    console.log(stripeItems);
 
     const session = await this.stripe.checkout.sessions.create({
       mode: 'payment',
@@ -195,7 +438,7 @@ export class OrderService implements OnModuleInit {
       cancel_url: cancelUrl,
     });
 
-    await this.prisma.payments.create({
+    const payment = await this.prisma.payments.create({
       data: {
         order_id: order.id,
         provider: PaymentProvider.STRIPE,
@@ -209,7 +452,11 @@ export class OrderService implements OnModuleInit {
       },
     });
 
-    return { checkout_url: session.url! };
+    return {
+      checkout_url: session.url!,
+      order_uuid: order.uuid,
+      expires_at: payment.expires_at,
+    };
   }
 
   async handleStripeWebhook(rawBody: Buffer, sig: string): Promise<void> {
@@ -261,8 +508,18 @@ export class OrderService implements OnModuleInit {
     }
 
     const orderItems = await this.prisma.order_items.findMany({
-      where: { order_id: payment.order_id, item_type: OrderItemType.PROMPT },
+      where: { order_id: payment.order_id },
     });
+    const promptOrderItems = orderItems.filter((item) =>
+      isEnumEqual(OrderItemType.PROMPT, item.item_type),
+    );
+    const itemsByType = orderItems.reduce<Record<string, typeof orderItems>>(
+      (acc, item) => {
+        (acc[item.item_type] ??= []).push(item);
+        return acc;
+      },
+      {},
+    );
 
     await this.prisma.$transaction([
       this.prisma.payments.update({
@@ -273,14 +530,27 @@ export class OrderService implements OnModuleInit {
         where: { id: payment.order_id },
         data: { status: OrderStatus.PAID },
       }),
-      this.prisma.user_prompts.createMany({
-        data: orderItems.map((item) => ({
-          user_id: payment.orders.user_id,
-          prompt_id: item.item_id,
-          order_id: payment.order_id,
-        })),
-        skipDuplicates: true,
-      }),
+      ...(promptOrderItems.length
+        ? [
+            this.prisma.user_prompts.createMany({
+              data: promptOrderItems.map((item) => ({
+                user_id: payment.orders.user_id,
+                prompt_id: item.item_id,
+                order_id: payment.order_id,
+              })),
+              skipDuplicates: true,
+            }),
+          ]
+        : []),
+      ...Object.entries(itemsByType).map(([itemType, items]) =>
+        this.prisma.cart_items.deleteMany({
+          where: {
+            user_id: payment.orders.user_id,
+            item_type: itemType,
+            item_id: { in: items.map((item) => item.item_id) },
+          },
+        }),
+      ),
     ]);
 
     this.logger.log(

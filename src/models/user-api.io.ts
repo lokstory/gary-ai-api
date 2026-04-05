@@ -163,9 +163,6 @@ export class PromptLabelResponse {
 
 export class PromptCategoryResponse {
   @ApiProperty()
-  id: number;
-
-  @ApiProperty()
   code: string;
 
   @ApiProperty()
@@ -244,6 +241,12 @@ export class CartItemResponse {
 export class OrderCheckoutResponse {
   @ApiProperty()
   checkout_url: string;
+
+  @ApiProperty()
+  order_uuid: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  expires_at: Date | null;
 }
 
 export class OrderLineItemResponse {

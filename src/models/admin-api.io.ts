@@ -197,6 +197,9 @@ export class AdminUpdateCategoryRequest {
 
 export class AdminCategoryResponse extends PromptCategoryResponse {
   @ApiProperty()
+  id: number;
+
+  @ApiProperty()
   enabled: boolean;
 
   @ApiProperty()
@@ -204,6 +207,11 @@ export class AdminCategoryResponse extends PromptCategoryResponse {
 
   @ApiProperty()
   updated_at: Date;
+}
+
+export class CmsPromptCategoryResponse extends PromptCategoryResponse {
+  @ApiProperty()
+  id: number;
 }
 
 export class AdminTestUploadResponse {
@@ -338,8 +346,8 @@ export class CmsPromptResponse {
   @ApiPropertyOptional({ enum: MediaType, nullable: true })
   media_type: MediaType | null;
 
-  @ApiPropertyOptional({ type: PromptCategoryResponse, nullable: true })
-  category: PromptCategoryResponse | null;
+  @ApiPropertyOptional({ type: CmsPromptCategoryResponse, nullable: true })
+  category: CmsPromptCategoryResponse | null;
 
   @ApiProperty()
   price: number;

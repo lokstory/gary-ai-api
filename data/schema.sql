@@ -157,6 +157,7 @@ CREATE TABLE orders
   uuid       UUID        NOT NULL DEFAULT gen_random_uuid() UNIQUE,
   user_id    BIGINT      NOT NULL REFERENCES users (id) ON UPDATE CASCADE ON DELETE CASCADE,
   status     VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+  fingerprint VARCHAR(255),
   amount     INTEGER     NOT NULL CHECK (amount >= 0),
   currency   VARCHAR(10) NOT NULL DEFAULT 'TWD',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -165,6 +166,8 @@ CREATE TABLE orders
 
 CREATE INDEX idx_orders_user_id ON orders (user_id);
 CREATE INDEX idx_orders_status ON orders (status);
+CREATE INDEX idx_orders_user_id_status_fingerprint
+  ON orders (user_id, status, fingerprint);
 
 
 CREATE TABLE order_items

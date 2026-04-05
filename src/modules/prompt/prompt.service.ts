@@ -436,6 +436,17 @@ export class PromptService {
     };
   }
 
+  private toPublicPromptCategory(
+    category: { id: number; code: string; name: string } | null,
+  ) {
+    if (!category) return null;
+
+    return {
+      code: category.code,
+      name: category.name,
+    };
+  }
+
   private toCmsPromptFileResponse(file: PromptFileItem): CmsPromptFileResponse {
     return {
       id: file.id.toString(),
@@ -475,10 +486,8 @@ export class PromptService {
   ): Promise<CmsPromptDetailResponse> {
     const fileMap = await this.attachFilesToPrompts([prompt]);
     const labelMap = await this.attachLabelsToPrompts([prompt]);
-    const categoryMap = await this.attachCategoriesToPrompts([prompt]);
     const files = fileMap.get(prompt.id) || [];
     const labels = labelMap.get(prompt.id) || [];
-    const category = categoryMap.get(prompt.id) ?? null;
     const assets = this.toAdminPromptFilesResponse(files);
 
     return {
@@ -508,7 +517,9 @@ export class PromptService {
       isEnumEqual(FileCategory.MEDIA, file.category),
     );
     const labels = labelMap.get(prompt.id) || [];
-    const category = categoryMap.get(prompt.id) ?? null;
+    const category = this.toPublicPromptCategory(
+      categoryMap.get(prompt.id) ?? null,
+    );
     const userState = stateMap.get(prompt.id) || {
       is_favorite: false,
       purchased: false,

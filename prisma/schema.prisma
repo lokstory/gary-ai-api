@@ -79,6 +79,8 @@ model prompts {
 
   @@index([description], map: "idx_prompts_description")
   @@index([name], map: "idx_prompts_name")
+  @@index([category_id], map: "idx_prompts_category_id")
+  @@index([media_type], map: "idx_prompts_media_type")
 }
 
 model user_prompt_favorites {
@@ -132,6 +134,7 @@ model orders {
   currency     String         @default("TWD") @db.VarChar(10)
   created_at   DateTime       @default(now()) @db.Timestamptz(6)
   updated_at   DateTime       @default(now()) @db.Timestamptz(6)
+  fingerprint  String?        @db.VarChar(255)
   order_items  order_items[]
   users        users          @relation(fields: [user_id], references: [id], onDelete: Cascade)
   payments     payments[]
@@ -139,6 +142,7 @@ model orders {
 
   @@index([status], map: "idx_orders_status")
   @@index([user_id], map: "idx_orders_user_id")
+  @@index([user_id, status, fingerprint], map: "idx_orders_user_id_status_fingerprint")
 }
 
 model payments {
