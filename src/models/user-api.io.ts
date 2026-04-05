@@ -238,17 +238,6 @@ export class CartItemResponse {
   item?: PromptResponse | null;
 }
 
-export class OrderCheckoutResponse {
-  @ApiProperty()
-  checkout_url: string;
-
-  @ApiProperty()
-  order_uuid: string;
-
-  @ApiPropertyOptional({ nullable: true })
-  expires_at: Date | null;
-}
-
 export class OrderLineItemResponse {
   @ApiProperty()
   item_type: string;
@@ -266,6 +255,14 @@ export class OrderLineItemResponse {
   item?: PromptResponse | null;
 }
 
+export class OrderPaymentResponse {
+  @ApiPropertyOptional({ nullable: true })
+  expires_at?: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  checkout_url?: string | null;
+}
+
 export class OrderResponse {
   @ApiProperty()
   uuid: string;
@@ -281,6 +278,9 @@ export class OrderResponse {
 
   @ApiProperty()
   created_at: Date;
+
+  @ApiPropertyOptional({ type: OrderPaymentResponse, nullable: true })
+  payment?: OrderPaymentResponse | null;
 
   @ApiProperty({ type: [OrderLineItemResponse] })
   items: OrderLineItemResponse[];

@@ -13,7 +13,7 @@ import Stripe from 'stripe';
 import { AppException } from '../../models/app.exception';
 import { AppCode } from '../../models/app.code';
 import { PromptService } from '../prompt/prompt.service';
-import { PageQuery } from '../../models/user-api.io';
+import { OrderResponse, PageQuery } from '../../models/user-api.io';
 import { isEnumEqual } from '../../utils/enum.util';
 
 type CheckoutLineItem = {
@@ -23,12 +23,6 @@ type CheckoutLineItem = {
   unit_price: number;
   amount: number;
   name: string;
-};
-
-type CheckoutResult = {
-  checkout_url: string;
-  order_uuid: string;
-  expires_at: Date | null;
 };
 
 type CheckoutDbClient = PrismaService | Prisma.TransactionClient;
@@ -41,6 +35,10 @@ type PendingCheckoutRow = {
   expires_at: Date | null;
   provider_session_id: string | null;
 };
+
+type OrderWithRelations = Awaited<
+  ReturnType<OrderService['findOrderRecordByUuid']>
+>;
 
 @Injectable()
 export class OrderService implements OnModuleInit {
@@ -58,7 +56,7 @@ export class OrderService implements OnModuleInit {
     this.stripe = new Stripe(this.config.getOrThrow('STRIPE_SECRET_KEY'));
   }
 
-  async checkoutFromCart(userId: bigint): Promise<CheckoutResult> {
+  async checkoutFromCart(userId: bigint): Promise<OrderResponse> {
     const cartItems = await this.prisma.cart_items.findMany({
       where: { user_id: userId },
     });
@@ -105,7 +103,7 @@ export class OrderService implements OnModuleInit {
     userId: bigint,
     itemType: string,
     itemId: bigint,
-  ): Promise<CheckoutResult | null> {
+  ): Promise<OrderResponse | null> {
     let name = '';
     let unitPrice = 0;
 
@@ -137,7 +135,7 @@ export class OrderService implements OnModuleInit {
   private async checkout(
     userId: bigint,
     lineItems: CheckoutLineItem[],
-  ): Promise<CheckoutResult> {
+  ): Promise<OrderResponse> {
     const fingerprint = this.buildLineItemsFingerprint(lineItems);
     const now = new Date();
     const totalAmount = this.calculateTotalAmount(lineItems);
@@ -155,7 +153,7 @@ export class OrderService implements OnModuleInit {
       if (existingCheckout) {
         return {
           type: 'reuse' as const,
-          payload: existingCheckout,
+          orderUuid: existingCheckout.order_uuid,
         };
       }
 
@@ -181,12 +179,16 @@ export class OrderService implements OnModuleInit {
     });
 
     if (prepared.type === 'reuse') {
-      return prepared.payload;
+      return this.getOrderByUuidOrThrow(userId, prepared.orderUuid);
     }
 
     await this.expireStripeSessions(prepared.staleSessionIds);
 
-    return this.createStripeCheckout(prepared.order, lineItems);
+    const createdOrder = await this.createStripeCheckout(
+      prepared.order,
+      lineItems,
+    );
+    return this.getOrderByUuidOrThrow(userId, createdOrder.uuid);
   }
 
   private async acquireCheckoutLock(
@@ -261,7 +263,7 @@ export class OrderService implements OnModuleInit {
     userId: bigint,
     fingerprint: string,
     now: Date,
-  ): Promise<CheckoutResult | null> {
+  ): Promise<PendingCheckoutRow | null> {
     const pendingCheckouts = await this.findPendingCheckoutsByFingerprint(
       db,
       userId,
@@ -278,9 +280,7 @@ export class OrderService implements OnModuleInit {
       }
 
       return {
-        checkout_url: checkout.checkout_url,
-        order_uuid: checkout.order_uuid,
-        expires_at: checkout.expires_at,
+        ...checkout,
       };
     }
 
@@ -292,6 +292,10 @@ export class OrderService implements OnModuleInit {
       expiresAt.getTime() - now.getTime() >=
       OrderService.REUSE_CHECKOUT_WINDOW_MS
     );
+  }
+
+  private isPaymentExpired(expiresAt: Date | null, now: Date) {
+    return !expiresAt || expiresAt.getTime() <= now.getTime();
   }
 
   private async cancelPendingCheckouts(
@@ -419,7 +423,7 @@ export class OrderService implements OnModuleInit {
   private async createStripeCheckout(
     order: { id: bigint; uuid: string },
     lineItems: CheckoutLineItem[],
-  ): Promise<CheckoutResult> {
+  ): Promise<{ id: bigint; uuid: string }> {
     const successUrl = this.config.getOrThrow<string>('STRIPE_SUCCESS_URL');
     const cancelUrl = this.config.getOrThrow<string>('STRIPE_CANCEL_URL');
     const stripeItems = lineItems.map((item) => ({
@@ -452,11 +456,7 @@ export class OrderService implements OnModuleInit {
       },
     });
 
-    return {
-      checkout_url: session.url!,
-      order_uuid: order.uuid,
-      expires_at: payment.expires_at,
-    };
+    return order;
   }
 
   async handleStripeWebhook(rawBody: Buffer, sig: string): Promise<void> {
@@ -600,17 +600,65 @@ export class OrderService implements OnModuleInit {
       this.prisma.orders.findMany({
         where: { user_id: userId },
         orderBy: { created_at: 'desc' },
-        include: { order_items: true },
+        include: {
+          order_items: true,
+          payments: {
+            orderBy: { created_at: 'desc' },
+            take: 1,
+          },
+        },
         skip,
         take,
       }),
       this.prisma.orders.count({ where: { user_id: userId } }),
     ]);
 
+    const items = await this.toOrderResponses(orders, userId);
+
+    return { items, total };
+  }
+
+  async getOrderByUuid(
+    userId: bigint,
+    uuid: string,
+  ): Promise<OrderResponse | null> {
+    const order = await this.findOrderRecordByUuid(userId, uuid);
+    if (!order) return null;
+
+    const [response] = await this.toOrderResponses([order], userId);
+    return response ?? null;
+  }
+
+  private async getOrderByUuidOrThrow(userId: bigint, uuid: string) {
+    const order = await this.getOrderByUuid(userId, uuid);
+    if (!order) {
+      throw new AppException({ code: AppCode.NOT_FOUND });
+    }
+
+    return order;
+  }
+
+  private async findOrderRecordByUuid(userId: bigint, uuid: string) {
+    return this.prisma.orders.findFirst({
+      where: { user_id: userId, uuid },
+      include: {
+        order_items: true,
+        payments: {
+          orderBy: { created_at: 'desc' },
+          take: 1,
+        },
+      },
+    });
+  }
+
+  private async toOrderResponses(
+    orders: NonNullable<OrderWithRelations>[],
+    userId: bigint,
+  ): Promise<OrderResponse[]> {
     const promptIds = orders
-      .flatMap((o) => o.order_items)
-      .filter((i) => isEnumEqual(OrderItemType.PROMPT, i.item_type))
-      .map((i) => i.item_id);
+      .flatMap((order) => order.order_items)
+      .filter((item) => isEnumEqual(OrderItemType.PROMPT, item.item_type))
+      .map((item) => item.item_id);
 
     const prompts =
       promptIds.length > 0
@@ -624,27 +672,40 @@ export class OrderService implements OnModuleInit {
       userId,
     );
     const promptResponseMap = new Map(
-      prompts.map((p, i) => [p.id, promptResponses[i]]),
+      prompts.map((prompt, index) => [prompt.id, promptResponses[index]]),
     );
 
-    const items = orders.map((order) => ({
-      uuid: order.uuid,
-      status: order.status,
-      amount: order.amount,
-      currency: order.currency,
-      created_at: order.created_at,
-      items: order.order_items.map((item) => ({
-        item_type: item.item_type,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        amount: item.amount,
-        item: isEnumEqual(OrderItemType.PROMPT, item.item_type)
-          ? (promptResponseMap.get(item.item_id) ?? null)
-          : null,
-      })),
-    }));
+    return orders.map((order) => {
+      const payment = order.payments[0] ?? null;
+      const now = new Date();
+      const orderPayment =
+        payment && isEnumEqual(OrderStatus.PENDING, order.status)
+          ? {
+              expires_at: payment.expires_at,
+              checkout_url: this.isPaymentExpired(payment.expires_at, now)
+                ? null
+                : payment.checkout_url,
+            }
+          : null;
 
-    return { items, total };
+      return {
+        uuid: order.uuid,
+        status: order.status,
+        amount: order.amount,
+        currency: order.currency,
+        created_at: order.created_at,
+        payment: orderPayment,
+        items: order.order_items.map((item) => ({
+          item_type: item.item_type,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          amount: item.amount,
+          item: isEnumEqual(OrderItemType.PROMPT, item.item_type)
+            ? (promptResponseMap.get(item.item_id) ?? null)
+            : null,
+        })),
+      };
+    });
   }
 
   async getPromptByPublicId(publicId: string) {

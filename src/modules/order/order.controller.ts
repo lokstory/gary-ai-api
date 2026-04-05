@@ -12,7 +12,6 @@ import { SwaggerBearer } from '../../models/constants';
 import { OrderItemType } from '../../models/enums';
 import { PaginatedResponse, RestResponse } from '../../models/rest.response';
 import {
-  OrderCheckoutResponse,
   OrderResponse,
   PageQuery,
 } from '../../models/user-api.io';
@@ -39,7 +38,7 @@ export class OrderController {
   }
 
   @ApiOperation({ summary: 'Checkout all items in cart' })
-  @ApiRestResponse(OrderCheckoutResponse)
+  @ApiRestResponse(OrderResponse)
   @Post('checkout/cart')
   async checkoutFromCart(@UserId() userId: bigint) {
     const result = await this.orderService.checkoutFromCart(userId);
@@ -50,7 +49,7 @@ export class OrderController {
   }
 
   @ApiOperation({ summary: 'Direct purchase a prompt by UUID' })
-  @ApiRestResponse(OrderCheckoutResponse)
+  @ApiRestResponse(OrderResponse)
   @Post('checkout/prompts/:uuid')
   async checkoutPromptDirect(
     @UserId() userId: bigint,
@@ -72,5 +71,20 @@ export class OrderController {
     }
 
     return RestResponse.success(result);
+  }
+
+  @ApiOperation({ summary: 'Get order detail by UUID' })
+  @ApiRestResponse(OrderResponse)
+  @Get(':uuid')
+  async getOrder(
+    @UserId() userId: bigint,
+    @Param('uuid', UUIDValidationPipe) uuid: string,
+  ) {
+    const order = await this.orderService.getOrderByUuid(userId, uuid);
+    if (!order) {
+      throw new AppException({ code: AppCode.NOT_FOUND });
+    }
+
+    return RestResponse.success(order);
   }
 }
