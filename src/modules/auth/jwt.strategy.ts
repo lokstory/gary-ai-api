@@ -18,7 +18,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: any) {
     const { email, sub: uuid, id, type } = payload;
     if (type !== 'user') {
-      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
+      throw new AppException({ code: AppCode.UNAUTHORIZED });
     }
 
     return {

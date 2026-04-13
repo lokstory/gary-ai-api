@@ -26,12 +26,13 @@ export class UserController {
     const user: users = (await this.usersService.findByPublicId(
       uuid as string,
     )) as users;
-    const { email, name } = user;
+    const { email, name, locale } = user;
 
     const data = new UserInfoResponse({
       uuid,
       email,
       name,
+      locale,
     });
 
     return RestResponse.success(data);
@@ -50,12 +51,13 @@ export class UserController {
       body,
     );
 
-    const { email, name } = user;
+    const { email, name, locale } = user;
 
     const data = new UserInfoResponse({
       uuid,
       email,
       name,
+      locale,
     });
 
     return RestResponse.success(data);

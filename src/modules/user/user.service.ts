@@ -29,6 +29,7 @@ export class UserService {
       },
       data: {
         ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.locale !== undefined ? { locale: data.locale } : {}),
       },
     });
   }

@@ -84,7 +84,7 @@ export class AuthService {
       !user ||
       !(await this.usersService.verifyPassword(user.password_hash!, password))
     ) {
-      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
+      throw new AppException({ code: AppCode.UNAUTHORIZED });
     }
     return this.getLoginResponseData(user);
   }
@@ -99,12 +99,12 @@ export class AuthService {
 
     const payload = ticket.getPayload();
     if (!payload) {
-      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
+      throw new AppException({ code: AppCode.UNAUTHORIZED });
     }
 
     const { sub: googleId, email, name, picture, exp } = payload;
     if (exp && Math.floor(Date.now() / 1000) > exp) {
-      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
+      throw new AppException({ code: AppCode.UNAUTHORIZED });
     }
 
     let user = await this.usersService.findByGoogleId(googleId);

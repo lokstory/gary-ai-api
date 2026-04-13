@@ -32,6 +32,7 @@ export enum FileType {
   IMAGE = 'IMAGE',
   VIDEO = 'VIDEO',
   PDF = 'PDF',
+  ZIP = 'ZIP',
 }
 
 export enum MediaType {

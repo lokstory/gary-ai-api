@@ -2,13 +2,23 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueryMode } from '../../../generated/prisma/internal/prismaNamespace';
 import { FileService, UploadedBinaryFile } from '../file/file.service';
-import { categories, files, prompts } from '../../../generated/prisma/client';
+import {
+  categories,
+  category_translations,
+  files,
+  label_translations,
+  prompt_translations,
+  prompts,
+} from '../../../generated/prisma/client';
 import { PageQuery, PromptFileResponse } from '../../models/user-api.io';
 import { FileCategory, FileType, MediaType } from '../../models/enums';
 import { isEnumEqual } from '../../utils/enum.util';
 import {
   AdminCreatePromptRequest,
+  AdminPromptTranslationRequest,
+  AdminPromptTranslationResponse,
   AdminUpdatePromptRequest,
+  CmsFeaturedPromptItemRequest,
   CmsPromptDetailResponse,
   CmsPromptFileResponse,
   CmsPromptFilesResponse,
@@ -46,9 +56,12 @@ type PromptDownloadMutation = {
 type UpdatePromptFilesPayload = {
   cover?: PromptAssetMutation | null;
   pdf?: PromptDownloadMutation | null;
+  zip?: PromptDownloadMutation | null;
   media?: PromptAssetMutation[];
   delete_ids?: Array<string | number>;
 };
+
+const DEFAULT_LOCALE = 'en';
 
 @Injectable()
 export class PromptService {
@@ -70,16 +83,180 @@ export class PromptService {
     mediaType?: MediaType;
     categoryCode?: string;
   }) {
-    const skip = (page - 1) * pageSize;
+    return this.listPromptsByVisibility({
+      page,
+      pageSize,
+      search,
+      mediaType,
+      categoryCode,
+      featuredVisibility: 'all',
+      orderBy: [{ created_at: 'desc' }],
+    });
+  }
+
+  async listPublicPrompts({
+    page = 1,
+    pageSize = 20,
+    search,
+    mediaType,
+    categoryCode,
+  }: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    mediaType?: MediaType;
+    categoryCode?: string;
+  }) {
+    return this.listPromptsByVisibility({
+      page,
+      pageSize,
+      search,
+      mediaType,
+      categoryCode,
+      featuredVisibility: 'non_featured',
+      orderBy: [{ created_at: 'desc' }],
+    });
+  }
+
+  async listFeaturedPrompts({
+    page = 1,
+    pageSize = 20,
+    search,
+    mediaType,
+    categoryCode,
+    all = true,
+  }: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    mediaType?: MediaType;
+    categoryCode?: string;
+    all?: boolean;
+  }) {
+    return this.listPromptsByVisibility({
+      page,
+      pageSize,
+      search,
+      mediaType,
+      categoryCode,
+      featuredVisibility: 'featured',
+      orderBy: [{ featured_rank: 'asc' }, { created_at: 'desc' }],
+      all,
+    });
+  }
+
+  async updateFeaturedPrompts(
+    items: CmsFeaturedPromptItemRequest[],
+  ): Promise<prompts[]> {
+    const normalizedItems = items ?? [];
+    const uniquePromptIds = new Set<number>();
+    const uniqueRanks = new Set<number>();
+
+    normalizedItems.forEach((item, index) => {
+      if (uniquePromptIds.has(item.id)) {
+        throw new AppException({
+          code: AppCode.PARAMETER_ERROR,
+          message: `items[${index}].id duplicated`,
+        });
+      }
+
+      if (item.rank < 0) {
+        throw new AppException({
+          code: AppCode.PARAMETER_ERROR,
+          message: `items[${index}].rank must be greater than or equal to 0`,
+        });
+      }
+
+      if (uniqueRanks.has(item.rank)) {
+        throw new AppException({
+          code: AppCode.PARAMETER_ERROR,
+          message: `items[${index}].rank duplicated`,
+        });
+      }
+
+      uniquePromptIds.add(item.id);
+      uniqueRanks.add(item.rank);
+    });
+
+    const promptIds = normalizedItems.map((item) => BigInt(item.id));
+    if (promptIds.length) {
+      const existingPrompts = await this.prisma.prompts.findMany({
+        where: { id: { in: promptIds } },
+        select: { id: true },
+      });
+      const existingIdSet = new Set(existingPrompts.map((item) => item.id));
+      const missingId = promptIds.find((id) => !existingIdSet.has(id));
+
+      if (missingId) {
+        throw new AppException({
+          code: AppCode.PARAMETER_ERROR,
+          message: `prompt id ${missingId.toString()} not found`,
+        });
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.prompts.updateMany({
+        where: { featured_rank: { gte: 0 } },
+        data: { featured_rank: -1 },
+      });
+
+      for (const item of normalizedItems) {
+        await tx.prompts.update({
+          where: { id: BigInt(item.id) },
+          data: { featured_rank: item.rank },
+        });
+      }
+    });
+
+    if (!promptIds.length) {
+      return [];
+    }
+
+    return this.prisma.prompts.findMany({
+      where: { id: { in: promptIds } },
+      orderBy: [{ featured_rank: 'asc' }, { created_at: 'desc' }],
+    });
+  }
+
+  private async listPromptsByVisibility({
+    page = 1,
+    pageSize = 20,
+    search,
+    mediaType,
+    categoryCode,
+    featuredVisibility,
+    orderBy,
+    all = false,
+  }: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    mediaType?: MediaType;
+    categoryCode?: string;
+    featuredVisibility: 'all' | 'featured' | 'non_featured';
+    orderBy: Array<Record<string, 'asc' | 'desc'>>;
+    all?: boolean;
+  }) {
     const where = {
       ...(search
         ? {
             OR: [
-              { name: { contains: search, mode: QueryMode.insensitive } },
               {
-                description: {
-                  contains: search,
-                  mode: QueryMode.insensitive,
+                prompt_translations: {
+                  some: {
+                    name: { contains: search, mode: QueryMode.insensitive },
+                  },
+                },
+              },
+              {
+                prompt_translations: {
+                  some: {
+                    description: {
+                      contains: search,
+                      mode: QueryMode.insensitive,
+                    },
+                  },
                 },
               },
             ],
@@ -103,14 +280,34 @@ export class PromptService {
             },
           }
         : {}),
+      ...(featuredVisibility === 'featured'
+        ? { featured_rank: { gte: 0 } }
+        : featuredVisibility === 'non_featured'
+          ? { featured_rank: -1 }
+          : {}),
     };
 
+    if (all) {
+      const items = await this.prisma.prompts.findMany({
+        where,
+        orderBy,
+      });
+
+      return {
+        items,
+        page,
+        pageSize: items.length || pageSize,
+        total: items.length,
+      };
+    }
+
+    const skip = (page - 1) * pageSize;
     const [items, total] = await this.prisma.$transaction([
       this.prisma.prompts.findMany({
         where,
         skip,
         take: pageSize,
-        orderBy: { created_at: 'desc' },
+        orderBy,
       }),
       this.prisma.prompts.count({ where }),
     ]);
@@ -141,16 +338,22 @@ export class PromptService {
 
   async createPrompt(input: AdminCreatePromptRequest): Promise<prompts> {
     const categoryId = await this.ensureCategoryExists(input.category_id);
+    this.validatePromptTranslations(input.translations, true);
 
     return this.prisma.prompts.create({
       data: {
-        name: input.name,
-        description: input.description ?? null,
         media_type: input.media_type ?? null,
         category_id: categoryId,
         price: input.price,
         bonus_credit: input.bonus_credit ?? 0,
         enabled: input.enabled ?? false,
+        prompt_translations: {
+          create: input.translations.map((translation) => ({
+            locale: translation.locale,
+            name: translation.name,
+            description: translation.description ?? null,
+          })),
+        },
       },
     });
   }
@@ -169,36 +372,62 @@ export class PromptService {
         ? await this.ensureCategoryExists(input.category_id)
         : undefined;
 
-    return this.prisma.prompts.update({
-      where: { id: existing.id },
-      data: {
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.description !== undefined
-          ? { description: input.description }
-          : {}),
-        ...(input.media_type !== undefined
-          ? { media_type: input.media_type }
-          : {}),
-        ...(categoryId !== undefined ? { category_id: categoryId } : {}),
-        ...(input.price !== undefined ? { price: input.price } : {}),
-        ...(input.bonus_credit !== undefined
-          ? { bonus_credit: input.bonus_credit }
-          : {}),
-        ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
-      },
+    if (input.translations) {
+      this.validatePromptTranslations(input.translations, true);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.prompts.update({
+        where: { id: existing.id },
+        data: {
+          ...(input.media_type !== undefined
+            ? { media_type: input.media_type }
+            : {}),
+          ...(categoryId !== undefined ? { category_id: categoryId } : {}),
+          ...(input.price !== undefined ? { price: input.price } : {}),
+          ...(input.bonus_credit !== undefined
+            ? { bonus_credit: input.bonus_credit }
+            : {}),
+          ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        },
+      });
+
+      if (input.translations) {
+        await tx.prompt_translations.deleteMany({
+          where: { prompt_id: updated.id },
+        });
+
+        await tx.prompt_translations.createMany({
+          data: input.translations.map((translation) => ({
+            prompt_id: updated.id,
+            locale: translation.locale,
+            name: translation.name,
+            description: translation.description ?? null,
+          })),
+        });
+      }
+
+      return updated;
     });
   }
 
-  toAdminResponse(prompt: prompts): CmsPromptResponse {
+  private toAdminResponse(
+    prompt: prompts,
+    translations: prompt_translations[],
+  ): CmsPromptResponse {
     return {
       id: prompt.id.toString(),
       uuid: prompt.uuid,
-      name: prompt.name,
-      description: prompt.description,
+      translations: translations.map((translation) => ({
+        locale: translation.locale,
+        name: translation.name,
+        description: translation.description ?? null,
+      })),
       media_type: (prompt.media_type as MediaType | null) ?? null,
       category: null,
       price: prompt.price,
       bonus_credit: prompt.bonus_credit,
+      featured_rank: prompt.featured_rank,
       enabled: prompt.enabled,
       created_at: prompt.created_at ?? null,
       updated_at: prompt.updated_at ?? null,
@@ -208,9 +437,12 @@ export class PromptService {
   async toAdminResponseWithCategory(
     prompt: prompts,
   ): Promise<CmsPromptResponse> {
-    const categoryMap = await this.attachCategoriesToPrompts([prompt]);
+    const [categoryMap, promptTranslationMap] = await Promise.all([
+      this.attachAdminCategoriesToPrompts([prompt]),
+      this.attachPromptTranslationsToPrompts([prompt]),
+    ]);
     return {
-      ...this.toAdminResponse(prompt),
+      ...this.toAdminResponse(prompt, promptTranslationMap.get(prompt.id) || []),
       category: categoryMap.get(prompt.id) ?? null,
     };
   }
@@ -275,6 +507,22 @@ export class PromptService {
           uploadedFiles,
           cleanupMap,
           mutation: payload.pdf ?? null,
+          expectedFileType: FileType.PDF,
+          fieldName: 'pdf',
+        });
+      }
+
+      if (payload.zip) {
+        await this.syncDownloadFile({
+          tx,
+          prompt,
+          existingFiles,
+          deleteIdSet,
+          uploadedFiles,
+          cleanupMap,
+          mutation: payload.zip ?? null,
+          expectedFileType: FileType.ZIP,
+          fieldName: 'zip',
         });
       }
 
@@ -354,6 +602,7 @@ export class PromptService {
 
   async attachLabelsToPrompts<T extends { id: bigint }>(
     items: T[],
+    locale: string = DEFAULT_LOCALE,
   ): Promise<Map<bigint, { code: string; name: string }[]>> {
     const labelMap = new Map<bigint, { code: string; name: string }[]>();
     if (!items.length) return labelMap;
@@ -366,9 +615,13 @@ export class PromptService {
         },
       },
       include: {
-        labels: true,
+        labels: {
+          include: {
+            label_translations: true,
+          },
+        },
       },
-      orderBy: [{ prompt_id: 'asc' }, { labels: { name: 'asc' } }],
+      orderBy: [{ prompt_id: 'asc' }, { labels: { code: 'asc' } }],
     });
 
     promptLabels.forEach((promptLabel) => {
@@ -378,11 +631,99 @@ export class PromptService {
 
       labelMap.get(promptLabel.prompt_id)?.push({
         code: promptLabel.labels.code,
-        name: promptLabel.labels.name,
+        name: this.resolveNameTranslation(
+          promptLabel.labels.label_translations,
+          locale,
+        ),
       });
     });
 
     return labelMap;
+  }
+
+  async attachAdminLabelsToPrompts<T extends { id: bigint }>(
+    items: T[],
+  ): Promise<
+    Map<
+      bigint,
+      {
+        id: number;
+        code: string;
+        translations: { locale: string; name: string }[];
+      }[]
+    >
+  > {
+    const labelMap = new Map<
+      bigint,
+      {
+        id: number;
+        code: string;
+        translations: { locale: string; name: string }[];
+      }[]
+    >();
+    if (!items.length) return labelMap;
+
+    const promptIds = items.map((item) => item.id);
+    const promptLabels = await this.prisma.prompt_labels.findMany({
+      where: {
+        prompt_id: {
+          in: promptIds,
+        },
+      },
+      include: {
+        labels: {
+          include: {
+            label_translations: true,
+          },
+        },
+      },
+      orderBy: [{ prompt_id: 'asc' }, { labels: { code: 'asc' } }],
+    });
+
+    promptLabels.forEach((promptLabel) => {
+      if (!labelMap.has(promptLabel.prompt_id)) {
+        labelMap.set(promptLabel.prompt_id, []);
+      }
+
+      labelMap.get(promptLabel.prompt_id)?.push({
+        id: promptLabel.labels.id,
+        code: promptLabel.labels.code,
+        translations: promptLabel.labels.label_translations.map(
+          (translation) => ({
+            locale: translation.locale,
+            name: translation.name,
+          }),
+        ),
+      });
+    });
+
+    return labelMap;
+  }
+
+  async attachPromptTranslationsToPrompts<T extends { id: bigint }>(
+    items: T[],
+  ): Promise<Map<bigint, prompt_translations[]>> {
+    const translationMap = new Map<bigint, prompt_translations[]>();
+    if (!items.length) return translationMap;
+
+    const promptIds = items.map((item) => item.id);
+    const translations = await this.prisma.prompt_translations.findMany({
+      where: {
+        prompt_id: {
+          in: promptIds,
+        },
+      },
+      orderBy: [{ prompt_id: 'asc' }, { locale: 'asc' }],
+    });
+
+    translations.forEach((translation) => {
+      if (!translationMap.has(translation.prompt_id)) {
+        translationMap.set(translation.prompt_id, []);
+      }
+      translationMap.get(translation.prompt_id)?.push(translation);
+    });
+
+    return translationMap;
   }
 
   async getUserPromptStates(
@@ -424,6 +765,77 @@ export class PromptService {
     return this.getUserPromptStates(userId, promptIds);
   }
 
+  private validatePromptTranslations(
+    translations: AdminPromptTranslationRequest[],
+    requireDefaultLocale: boolean,
+  ) {
+    if (!translations?.length) {
+      throw new AppException({
+        code: AppCode.PARAMETER_ERROR,
+        message: 'translations is required',
+      });
+    }
+
+    const localeSet = new Set<string>();
+    translations.forEach((translation, index) => {
+      const locale = translation.locale.trim();
+      if (!locale) {
+        throw new AppException({
+          code: AppCode.PARAMETER_ERROR,
+          message: `translations[${index}].locale is required`,
+        });
+      }
+
+      if (localeSet.has(locale)) {
+        throw new AppException({
+          code: AppCode.PARAMETER_ERROR,
+          message: `translations[${index}].locale duplicated`,
+        });
+      }
+
+      localeSet.add(locale);
+    });
+
+    if (requireDefaultLocale && !localeSet.has(DEFAULT_LOCALE)) {
+      throw new AppException({
+        code: AppCode.PARAMETER_ERROR,
+        message: `translations must include ${DEFAULT_LOCALE}`,
+      });
+    }
+  }
+
+  private resolveNameTranslation(
+    translations: Array<category_translations | label_translations>,
+    locale: string,
+  ) {
+    return (
+      translations.find((translation) => translation.locale === locale)?.name ??
+      translations.find((translation) => translation.locale === DEFAULT_LOCALE)
+        ?.name ??
+      translations[0]?.name ??
+      ''
+    );
+  }
+
+  private resolvePromptTranslation(
+    translations: prompt_translations[],
+    locale: string,
+  ): AdminPromptTranslationResponse | null {
+    const translation =
+      translations.find((item) => item.locale === locale) ??
+      translations.find((item) => item.locale === DEFAULT_LOCALE) ??
+      translations[0] ??
+      null;
+
+    if (!translation) return null;
+
+    return {
+      locale: translation.locale,
+      name: translation.name,
+      description: translation.description ?? null,
+    };
+  }
+
   private toPromptFileResponse(file: PromptFileItem): PromptFileResponse {
     return {
       uuid: file.uuid,
@@ -460,16 +872,26 @@ export class PromptService {
     const coverFile =
       files.find((file) => isEnumEqual(FileCategory.COVER, file.category)) ??
       null;
-    const downloadFile =
-      files.find((file) => isEnumEqual(FileCategory.DOWNLOAD, file.category)) ??
-      null;
+    const pdfFile =
+      files.find(
+        (file) =>
+          isEnumEqual(FileCategory.DOWNLOAD, file.category) &&
+          isEnumEqual(FileType.PDF, file.file_type as FileType),
+      ) ?? null;
+    const zipFile =
+      files.find(
+        (file) =>
+          isEnumEqual(FileCategory.DOWNLOAD, file.category) &&
+          isEnumEqual(FileType.ZIP, file.file_type as FileType),
+      ) ?? null;
     const mediaFiles = files.filter((file) =>
       isEnumEqual(FileCategory.MEDIA, file.category),
     );
 
     return {
       cover: coverFile ? this.toCmsPromptFileResponse(coverFile) : null,
-      pdf: downloadFile ? this.toCmsPromptFileResponse(downloadFile) : null,
+      pdf: pdfFile ? this.toCmsPromptFileResponse(pdfFile) : null,
+      zip: zipFile ? this.toCmsPromptFileResponse(zipFile) : null,
       files: mediaFiles.map((file) => this.toCmsPromptFileResponse(file)),
     };
   }
@@ -484,16 +906,27 @@ export class PromptService {
   async adminPromptToResponse(
     prompt: prompts,
   ): Promise<CmsPromptDetailResponse> {
-    const fileMap = await this.attachFilesToPrompts([prompt]);
-    const labelMap = await this.attachLabelsToPrompts([prompt]);
+    const [fileMap, labelMap, promptTranslationMap] = await Promise.all([
+      this.attachFilesToPrompts([prompt]),
+      this.attachAdminLabelsToPrompts([prompt]),
+      this.attachPromptTranslationsToPrompts([prompt]),
+    ]);
     const files = fileMap.get(prompt.id) || [];
     const labels = labelMap.get(prompt.id) || [];
     const assets = this.toAdminPromptFilesResponse(files);
 
     return {
       ...(await this.toAdminResponseWithCategory(prompt)),
+      translations: (promptTranslationMap.get(prompt.id) || []).map(
+        (translation) => ({
+          locale: translation.locale,
+          name: translation.name,
+          description: translation.description ?? null,
+        }),
+      ),
       cover: assets.cover ?? null,
       pdf: assets.pdf ?? null,
+      zip: assets.zip ?? null,
       files: assets.files,
       labels,
     };
@@ -501,18 +934,29 @@ export class PromptService {
 
   createPromptResponse(
     prompt: prompts,
+    promptTranslationMap: Map<bigint, prompt_translations[]>,
     fileMap: Map<bigint, PromptFileItem[]>,
     labelMap: Map<bigint, { code: string; name: string }[]>,
     categoryMap: Map<bigint, { id: number; code: string; name: string } | null>,
     stateMap: Map<bigint, { is_favorite: boolean; purchased: boolean }>,
+    locale: string,
   ) {
     const files = fileMap.get(prompt.id) || [];
     const coverFile =
       files.find((file) => isEnumEqual(FileCategory.COVER, file.category)) ??
       null;
-    const downloadFile =
-      files.find((file) => isEnumEqual(FileCategory.DOWNLOAD, file.category)) ??
-      null;
+    const pdfFile =
+      files.find(
+        (file) =>
+          isEnumEqual(FileCategory.DOWNLOAD, file.category) &&
+          isEnumEqual(FileType.PDF, file.file_type as FileType),
+      ) ?? null;
+    const zipFile =
+      files.find(
+        (file) =>
+          isEnumEqual(FileCategory.DOWNLOAD, file.category) &&
+          isEnumEqual(FileType.ZIP, file.file_type as FileType),
+      ) ?? null;
     const remainingFiles = files.filter((file) =>
       isEnumEqual(FileCategory.MEDIA, file.category),
     );
@@ -524,11 +968,15 @@ export class PromptService {
       is_favorite: false,
       purchased: false,
     };
+    const translation = this.resolvePromptTranslation(
+      promptTranslationMap.get(prompt.id) || [],
+      locale,
+    );
 
     return {
       uuid: prompt.uuid,
-      name: prompt.name,
-      description: prompt.description,
+      name: translation?.name ?? '',
+      description: translation?.description ?? null,
       price: prompt.price,
       enabled: prompt.enabled,
       bonus_credit: prompt.bonus_credit,
@@ -536,9 +984,13 @@ export class PromptService {
       category,
       created_at: prompt.created_at,
       cover: coverFile ? this.toPromptFileResponse(coverFile) : null,
-      pdf: downloadFile
+      pdf: pdfFile
         ? // userState.purchased && downloadFile
-          this.toPromptFileResponse(downloadFile)
+          this.toPromptFileResponse(pdfFile)
+        : null,
+      zip: zipFile
+        ? // userState.purchased && downloadFile
+          this.toPromptFileResponse(zipFile)
         : null,
       files: remainingFiles.map((file) => this.toPromptFileResponse(file)),
       labels,
@@ -546,12 +998,20 @@ export class PromptService {
     };
   }
 
-  async promptsToResponses(prompts: prompts[], userId: bigint | null = null) {
+  async promptsToResponses(
+    prompts: prompts[],
+    userId: bigint | null = null,
+    locale: string = DEFAULT_LOCALE,
+  ) {
     if (!prompts.length) return [];
 
-    const fileMap = await this.attachFilesToPrompts(prompts);
-    const labelMap = await this.attachLabelsToPrompts(prompts);
-    const categoryMap = await this.attachCategoriesToPrompts(prompts);
+    const [fileMap, labelMap, categoryMap, promptTranslationMap] =
+      await Promise.all([
+        this.attachFilesToPrompts(prompts),
+        this.attachLabelsToPrompts(prompts, locale),
+        this.attachCategoriesToPrompts(prompts, locale),
+        this.attachPromptTranslationsToPrompts(prompts),
+      ]);
     const userStateMap = userId
       ? await this.attachUserStateToPrompts(userId, prompts)
       : new Map();
@@ -559,10 +1019,12 @@ export class PromptService {
     return prompts.map((p) =>
       this.createPromptResponse(
         p,
+        promptTranslationMap,
         fileMap,
         labelMap,
         categoryMap,
         userStateMap,
+        locale,
       ),
     );
   }
@@ -571,6 +1033,7 @@ export class PromptService {
     T extends { id: bigint; category_id?: number | null },
   >(
     items: T[],
+    locale: string = DEFAULT_LOCALE,
   ): Promise<Map<bigint, { id: number; code: string; name: string } | null>> {
     const categoryMap = new Map<
       bigint,
@@ -588,10 +1051,14 @@ export class PromptService {
       ),
     );
 
-    const categoriesById = new Map<number, categories>();
+    const categoriesById = new Map<
+      number,
+      categories & { category_translations: category_translations[] }
+    >();
     if (categoryIds.length) {
       const categoryItems = await this.prisma.categories.findMany({
         where: { id: { in: categoryIds } },
+        include: { category_translations: true },
       });
 
       categoryItems.forEach((category) => {
@@ -612,7 +1079,86 @@ export class PromptService {
           ? {
               id: category.id,
               code: category.code,
-              name: category.name,
+              name: this.resolveNameTranslation(
+                category.category_translations,
+                locale,
+              ),
+            }
+          : null,
+      );
+    });
+
+    return categoryMap;
+  }
+
+  async attachAdminCategoriesToPrompts<
+    T extends { id: bigint; category_id?: number | null },
+  >(
+    items: T[],
+  ): Promise<
+    Map<
+      bigint,
+      {
+        id: number;
+        code: string;
+        translations: { locale: string; name: string }[];
+      } | null
+    >
+  > {
+    const categoryMap = new Map<
+      bigint,
+      {
+        id: number;
+        code: string;
+        translations: { locale: string; name: string }[];
+      } | null
+    >();
+    if (!items.length) return categoryMap;
+
+    const categoryIds = Array.from(
+      new Set(
+        items
+          .map((item) => item.category_id)
+          .filter(
+            (item): item is number => item !== null && item !== undefined,
+          ),
+      ),
+    );
+
+    const categoriesById = new Map<
+      number,
+      categories & { category_translations: category_translations[] }
+    >();
+    if (categoryIds.length) {
+      const categoryItems = await this.prisma.categories.findMany({
+        where: { id: { in: categoryIds } },
+        include: { category_translations: true },
+      });
+
+      categoryItems.forEach((category) => {
+        categoriesById.set(category.id, category);
+      });
+    }
+
+    items.forEach((item) => {
+      if (!item.category_id) {
+        categoryMap.set(item.id, null);
+        return;
+      }
+
+      const category = categoriesById.get(item.category_id) ?? null;
+      categoryMap.set(
+        item.id,
+        category
+          ? {
+              id: category.id,
+              code: category.code,
+              translations: category.category_translations.map(
+                (translation) => ({
+                  locale: translation.locale,
+                  name: translation.name,
+                }),
+              ),
             }
           : null,
       );
@@ -804,6 +1350,8 @@ export class PromptService {
     }
     const pdfId = this.parsePositiveBigIntId(payload.pdf?.id, 'pdf.id');
     if (pdfId) referencedIds.push(pdfId);
+    const zipId = this.parsePositiveBigIntId(payload.zip?.id, 'zip.id');
+    if (zipId) referencedIds.push(zipId);
     payload.media?.forEach((item) => {
       const mediaId = this.parsePositiveBigIntId(item.id, 'media.id');
       if (mediaId) referencedIds.push(mediaId);
@@ -863,6 +1411,21 @@ export class PromptService {
       existingFiles.find(
         (file) =>
           isEnumEqual(category, file.category) && !deleteIdSet.has(file.id),
+      ) ?? null
+    );
+  }
+
+  private findExistingDownloadByFileType(
+    existingFiles: files[],
+    fileType: FileType,
+    deleteIdSet: Set<bigint>,
+  ): files | null {
+    return (
+      existingFiles.find(
+        (file) =>
+          isEnumEqual(FileCategory.DOWNLOAD, file.category) &&
+          isEnumEqual(fileType, file.file_type as FileType) &&
+          !deleteIdSet.has(file.id),
       ) ?? null
     );
   }
@@ -1010,6 +1573,8 @@ export class PromptService {
     uploadedFiles,
     cleanupMap,
     mutation,
+    expectedFileType,
+    fieldName,
   }: {
     tx: any;
     prompt: prompts;
@@ -1018,10 +1583,12 @@ export class PromptService {
     uploadedFiles: Map<string, UploadedBinaryFile>;
     cleanupMap: Map<bigint, files>;
     mutation: PromptDownloadMutation | null;
+    expectedFileType: FileType.PDF | FileType.ZIP;
+    fieldName: 'pdf' | 'zip';
   }) {
-    const existingDownload = this.findFirstExistingByCategory(
+    const existingDownload = this.findExistingDownloadByFileType(
       existingFiles,
-      FileCategory.DOWNLOAD,
+      expectedFileType,
       deleteIdSet,
     );
 
@@ -1037,6 +1604,17 @@ export class PromptService {
         mutation.id,
         FileCategory.DOWNLOAD,
       ) ?? existingDownload;
+
+    if (
+      previousDownload &&
+      !isEnumEqual(expectedFileType, previousDownload.file_type as FileType)
+    ) {
+      throw new AppException({
+        code: AppCode.PARAMETER_ERROR,
+        message: `${fieldName}.id file type mismatch`,
+      });
+    }
+
     let downloadFile = previousDownload;
 
     if (mutation.file_key) {
@@ -1077,7 +1655,7 @@ export class PromptService {
     } else if (!downloadFile) {
       throw new AppException({
         code: AppCode.PARAMETER_ERROR,
-        message: 'pdf requires id or file_key',
+        message: `${fieldName} requires id or file_key`,
       });
     }
   }
@@ -1372,9 +1950,19 @@ export class PromptService {
       return FileType.PDF;
     }
 
+    if (
+      file.mimetype === 'application/zip' ||
+      file.mimetype === 'application/x-zip-compressed'
+    ) {
+      return FileType.ZIP;
+    }
+
     const extension = this.getFileExtension(file.originalname).toLowerCase();
     if (extension === '.pdf') {
       return FileType.PDF;
+    }
+    if (extension === '.zip') {
+      return FileType.ZIP;
     }
 
     throw new AppException({
@@ -1415,11 +2003,12 @@ export class PromptService {
 
     if (
       isEnumEqual(FileCategory.DOWNLOAD, category) &&
-      !isEnumEqual(FileType.PDF, fileType)
+      !isEnumEqual(FileType.PDF, fileType) &&
+      !isEnumEqual(FileType.ZIP, fileType)
     ) {
       throw new AppException({
         code: AppCode.PARAMETER_ERROR,
-        message: 'download only supports pdf',
+        message: 'download only supports pdf or zip',
       });
     }
   }

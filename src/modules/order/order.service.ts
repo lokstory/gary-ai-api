@@ -68,12 +68,19 @@ export class OrderService implements OnModuleInit {
     const promptItems = cartItems.filter((i) =>
       isEnumEqual(OrderItemType.PROMPT, i.item_type),
     );
-    const promptIds = promptItems.map((i) => i.item_id);
+const promptIds = promptItems.map((i) => i.item_id);
+    const locale = 'en';
 
     const prompts =
       promptIds.length > 0
         ? await this.prisma.prompts.findMany({
             where: { id: { in: promptIds } },
+            include: {
+              prompt_translations: {
+                where: { locale },
+                take: 1,
+              },
+            },
           })
         : [];
 
@@ -89,7 +96,7 @@ export class OrderService implements OnModuleInit {
             quantity: item.quantity,
             unit_price: prompt?.price ?? 0,
             amount: (prompt?.price ?? 0) * item.quantity,
-            name: prompt?.name ?? '',
+            name: prompt?.prompt_translations[0]?.name ?? '',
           };
         }
         return null;
@@ -110,9 +117,15 @@ export class OrderService implements OnModuleInit {
     if (isEnumEqual(OrderItemType.PROMPT, itemType)) {
       const prompt = await this.prisma.prompts.findUnique({
         where: { id: itemId },
+        include: {
+          prompt_translations: {
+            where: { locale: 'en' },
+            take: 1,
+          },
+        },
       });
       if (!prompt) return null;
-      name = prompt.name;
+      name = prompt.prompt_translations[0]?.name ?? '';
       unitPrice = prompt.price;
     } else {
       return null;

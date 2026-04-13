@@ -11,15 +11,14 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { AppCode } from './app.code';
 import { PASSWORD_REGEX } from './constants';
 import { Type } from 'class-transformer';
 import {
   PageQuery,
-  PromptCategoryResponse,
   PromptFileResponse,
-  PromptLabelResponse,
 } from './user-api.io';
 import { MediaType } from './enums';
 
@@ -68,6 +67,40 @@ export class AdminListLabelsQuery extends PageQuery {
   search?: string;
 }
 
+export class AdminNameTranslationRequest {
+  @ApiProperty({ example: 'en' })
+  @IsString({ context: { code: AppCode.PARAMETER_ERROR[0] } })
+  @MinLength(2)
+  @MaxLength(16)
+  locale: string;
+
+  @ApiProperty({ example: 'AI Prompt' })
+  @IsString({ context: { code: AppCode.PARAMETER_ERROR[0] } })
+  @MinLength(1)
+  @MaxLength(255)
+  name: string;
+}
+
+export class AdminPromptTranslationRequest extends AdminNameTranslationRequest {
+  @ApiPropertyOptional({ example: 'A prompt pack for cinematic portraits.' })
+  @IsOptional()
+  @IsString({ context: { code: AppCode.PARAMETER_ERROR[0] } })
+  description?: string | null;
+}
+
+export class AdminNameTranslationResponse {
+  @ApiProperty()
+  locale: string;
+
+  @ApiProperty()
+  name: string;
+}
+
+export class AdminPromptTranslationResponse extends AdminNameTranslationResponse {
+  @ApiPropertyOptional({ nullable: true })
+  description: string | null;
+}
+
 export class AdminCreateLabelRequest {
   @ApiProperty({ example: 'ai.prompt' })
   @IsString({
@@ -77,13 +110,11 @@ export class AdminCreateLabelRequest {
   @MaxLength(100)
   code: string;
 
-  @ApiProperty({ example: 'AI Prompt' })
-  @IsString({
-    context: { code: AppCode.PARAMETER_ERROR[0] },
-  })
-  @MinLength(1)
-  @MaxLength(255)
-  name: string;
+  @ApiProperty({ type: [AdminNameTranslationRequest] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminNameTranslationRequest)
+  translations: AdminNameTranslationRequest[];
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()
@@ -102,14 +133,12 @@ export class AdminUpdateLabelRequest {
   @MaxLength(100)
   code?: string;
 
-  @ApiPropertyOptional({ example: 'AI Prompt' })
+  @ApiPropertyOptional({ type: [AdminNameTranslationRequest] })
   @IsOptional()
-  @IsString({
-    context: { code: AppCode.PARAMETER_ERROR[0] },
-  })
-  @MinLength(1)
-  @MaxLength(255)
-  name?: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminNameTranslationRequest)
+  translations?: AdminNameTranslationRequest[];
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -125,8 +154,8 @@ export class AdminLabelResponse {
   @ApiProperty()
   code: string;
 
-  @ApiProperty()
-  name: string;
+  @ApiProperty({ type: [AdminNameTranslationResponse] })
+  translations: AdminNameTranslationResponse[];
 
   @ApiProperty()
   enabled: boolean;
@@ -154,13 +183,11 @@ export class AdminCreateCategoryRequest {
   @MaxLength(100)
   code: string;
 
-  @ApiProperty({ example: 'Portrait' })
-  @IsString({
-    context: { code: AppCode.PARAMETER_ERROR[0] },
-  })
-  @MinLength(1)
-  @MaxLength(255)
-  name: string;
+  @ApiProperty({ type: [AdminNameTranslationRequest] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminNameTranslationRequest)
+  translations: AdminNameTranslationRequest[];
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()
@@ -179,14 +206,12 @@ export class AdminUpdateCategoryRequest {
   @MaxLength(100)
   code?: string;
 
-  @ApiPropertyOptional({ example: 'Portrait' })
+  @ApiPropertyOptional({ type: [AdminNameTranslationRequest] })
   @IsOptional()
-  @IsString({
-    context: { code: AppCode.PARAMETER_ERROR[0] },
-  })
-  @MinLength(1)
-  @MaxLength(255)
-  name?: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminNameTranslationRequest)
+  translations?: AdminNameTranslationRequest[];
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -195,12 +220,18 @@ export class AdminUpdateCategoryRequest {
   enabled?: boolean;
 }
 
-export class AdminCategoryResponse extends PromptCategoryResponse {
+export class AdminCategoryResponse {
   @ApiProperty()
   id: number;
 
   @ApiProperty()
+  code: string;
+
+  @ApiProperty()
   enabled: boolean;
+
+  @ApiProperty({ type: [AdminNameTranslationResponse] })
+  translations: AdminNameTranslationResponse[];
 
   @ApiProperty()
   created_at: Date;
@@ -209,9 +240,26 @@ export class AdminCategoryResponse extends PromptCategoryResponse {
   updated_at: Date;
 }
 
-export class CmsPromptCategoryResponse extends PromptCategoryResponse {
+export class CmsPromptCategoryResponse {
   @ApiProperty()
   id: number;
+
+  @ApiProperty()
+  code: string;
+
+  @ApiProperty({ type: [AdminNameTranslationResponse] })
+  translations: AdminNameTranslationResponse[];
+}
+
+export class CmsPromptLabelResponse {
+  @ApiProperty()
+  id: number;
+
+  @ApiProperty()
+  code: string;
+
+  @ApiProperty({ type: [AdminNameTranslationResponse] })
+  translations: AdminNameTranslationResponse[];
 }
 
 export class AdminTestUploadResponse {
@@ -229,16 +277,11 @@ export class AdminTestUploadResponse {
 }
 
 export class AdminCreatePromptRequest {
-  @ApiProperty({ example: 'Cinematic Portrait Prompt Pack' })
-  @IsString({ context: { code: AppCode.PARAMETER_ERROR[0] } })
-  @MinLength(1)
-  @MaxLength(255)
-  name: string;
-
-  @ApiPropertyOptional({ example: 'A prompt pack for cinematic portraits.' })
-  @IsOptional()
-  @IsString({ context: { code: AppCode.PARAMETER_ERROR[0] } })
-  description?: string;
+  @ApiProperty({ type: [AdminPromptTranslationRequest] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminPromptTranslationRequest)
+  translations: AdminPromptTranslationRequest[];
 
   @ApiPropertyOptional({ enum: MediaType, nullable: true })
   @IsOptional()
@@ -273,17 +316,12 @@ export class AdminCreatePromptRequest {
 }
 
 export class AdminUpdatePromptRequest {
-  @ApiPropertyOptional({ example: 'Cinematic Portrait Prompt Pack' })
+  @ApiPropertyOptional({ type: [AdminPromptTranslationRequest] })
   @IsOptional()
-  @IsString({ context: { code: AppCode.PARAMETER_ERROR[0] } })
-  @MinLength(1)
-  @MaxLength(255)
-  name?: string;
-
-  @ApiPropertyOptional({ example: 'A prompt pack for cinematic portraits.' })
-  @IsOptional()
-  @IsString({ context: { code: AppCode.PARAMETER_ERROR[0] } })
-  description?: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AdminPromptTranslationRequest)
+  translations?: AdminPromptTranslationRequest[];
 
   @ApiPropertyOptional({ enum: MediaType, nullable: true })
   @IsOptional()
@@ -337,11 +375,8 @@ export class CmsPromptResponse {
   @ApiProperty()
   uuid: string;
 
-  @ApiProperty()
-  name: string;
-
-  @ApiProperty({ nullable: true })
-  description: string | null;
+  @ApiProperty({ type: [AdminPromptTranslationResponse] })
+  translations: AdminPromptTranslationResponse[];
 
   @ApiPropertyOptional({ enum: MediaType, nullable: true })
   media_type: MediaType | null;
@@ -354,6 +389,9 @@ export class CmsPromptResponse {
 
   @ApiProperty()
   bonus_credit: number;
+
+  @ApiProperty()
+  featured_rank: number;
 
   @ApiProperty()
   enabled: boolean;
@@ -372,8 +410,34 @@ export class CmsPromptFilesResponse {
   @ApiPropertyOptional({ type: CmsPromptFileResponse, nullable: true })
   pdf?: CmsPromptFileResponse | null;
 
+  @ApiPropertyOptional({ type: CmsPromptFileResponse, nullable: true })
+  zip?: CmsPromptFileResponse | null;
+
   @ApiProperty({ type: [CmsPromptFileResponse] })
   files: CmsPromptFileResponse[];
+}
+
+export class CmsFeaturedPromptItemRequest {
+  @ApiProperty({ example: 1 })
+  @Type(() => Number)
+  @IsInt({ context: { code: AppCode.PARAMETER_ERROR[0] } })
+  @Min(1)
+  id: number;
+
+  @ApiProperty({ example: 0 })
+  @Type(() => Number)
+  @IsInt({ context: { code: AppCode.PARAMETER_ERROR[0] } })
+  @Min(0)
+  rank: number;
+}
+
+export class CmsUpdateFeaturedPromptsRequest {
+  @ApiPropertyOptional({ type: [CmsFeaturedPromptItemRequest], default: [] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CmsFeaturedPromptItemRequest)
+  items?: CmsFeaturedPromptItemRequest[];
 }
 
 export class CmsPromptFileMutationRequest {
@@ -425,7 +489,7 @@ export class CmsPromptFileMutationRequest {
 
 export class CmsPromptDownloadMutationRequest {
   @ApiPropertyOptional({
-    description: 'Existing pdf file primary key.',
+    description: 'Existing download file primary key.',
     example: '20',
     oneOf: [{ type: 'string' }, { type: 'integer' }],
   })
@@ -434,7 +498,7 @@ export class CmsPromptDownloadMutationRequest {
 
   @ApiPropertyOptional({
     description:
-      'Multipart form-data file field name for the new uploaded pdf.',
+      'Multipart form-data file field name for the new uploaded download file.',
     example: 'pdf_file',
   })
   @IsOptional()
@@ -462,6 +526,15 @@ export class CmsUpdatePromptFilesPayloadRequest {
   pdf?: CmsPromptDownloadMutationRequest | null;
 
   @ApiPropertyOptional({
+    type: CmsPromptDownloadMutationRequest,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsObject()
+  @Type(() => CmsPromptDownloadMutationRequest)
+  zip?: CmsPromptDownloadMutationRequest | null;
+
+  @ApiPropertyOptional({
     type: [CmsPromptFileMutationRequest],
   })
   @IsOptional()
@@ -486,9 +559,12 @@ export class CmsPromptDetailResponse extends CmsPromptResponse {
   @ApiPropertyOptional({ type: CmsPromptFileResponse, nullable: true })
   pdf?: CmsPromptFileResponse | null;
 
+  @ApiPropertyOptional({ type: CmsPromptFileResponse, nullable: true })
+  zip?: CmsPromptFileResponse | null;
+
   @ApiProperty({ type: [CmsPromptFileResponse] })
   files: CmsPromptFileResponse[];
 
-  @ApiProperty({ type: [PromptLabelResponse] })
-  labels: PromptLabelResponse[];
+  @ApiProperty({ type: [CmsPromptLabelResponse] })
+  labels: CmsPromptLabelResponse[];
 }

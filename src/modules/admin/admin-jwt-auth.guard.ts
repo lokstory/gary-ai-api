@@ -17,7 +17,7 @@ export class AdminJwtAuthGuard extends AuthGuard('admin-jwt') {
     }
 
     if (err || !user) {
-      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
+      throw new AppException({ code: AppCode.UNAUTHORIZED });
     }
 
     return user;

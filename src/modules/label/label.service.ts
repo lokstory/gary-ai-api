@@ -4,10 +4,21 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AppException } from '../../models/app.exception';
 import { AppCode } from '../../models/app.code';
 import {
-  AdminLabelResponse,
   AdminCreateLabelRequest,
+  AdminLabelResponse,
+  AdminNameTranslationRequest,
   AdminUpdateLabelRequest,
 } from '../../models/admin-api.io';
+import { label_translations } from '../../../generated/prisma/client';
+
+type LabelWithTranslations = {
+  id: number;
+  code: string;
+  enabled: boolean;
+  created_at: Date;
+  updated_at: Date;
+  label_translations: label_translations[];
+};
 
 @Injectable()
 export class LabelService {
@@ -27,7 +38,13 @@ export class LabelService {
       ? {
           OR: [
             { code: { contains: search, mode: QueryMode.insensitive } },
-            { name: { contains: search, mode: QueryMode.insensitive } },
+            {
+              label_translations: {
+                some: {
+                  name: { contains: search, mode: QueryMode.insensitive },
+                },
+              },
+            },
           ],
         }
       : {};
@@ -35,6 +52,7 @@ export class LabelService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.labels.findMany({
         where,
+        include: { label_translations: true },
         skip,
         take: pageSize,
         orderBy: [{ enabled: 'desc' }, { created_at: 'desc' }],
@@ -48,18 +66,26 @@ export class LabelService {
   async getLabelById(id: number) {
     return this.prisma.labels.findUnique({
       where: { id },
+      include: { label_translations: true },
     });
   }
 
   async createLabel(input: AdminCreateLabelRequest) {
-    await this.ensureLabelIsUnique(input.code, input.name);
+    this.validateNameTranslations(input.translations, true);
+    await this.ensureLabelCodeIsUnique(input.code);
 
     return this.prisma.labels.create({
       data: {
         code: input.code,
-        name: input.name,
         enabled: input.enabled ?? true,
+        label_translations: {
+          create: input.translations.map((translation) => ({
+            locale: translation.locale,
+            name: translation.name,
+          })),
+        },
       },
+      include: { label_translations: true },
     });
   }
 
@@ -69,17 +95,40 @@ export class LabelService {
       throw new AppException({ code: AppCode.NOT_FOUND });
     }
 
-    const nextCode = input.code ?? existing.code;
-    const nextName = input.name ?? existing.name;
-    await this.ensureLabelIsUnique(nextCode, nextName, id);
+    if (input.code !== undefined) {
+      await this.ensureLabelCodeIsUnique(input.code, id);
+    }
+    if (input.translations) {
+      this.validateNameTranslations(input.translations, true);
+    }
 
-    return this.prisma.labels.update({
-      where: { id },
-      data: {
-        ...(input.code !== undefined ? { code: input.code } : {}),
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
-      },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.labels.update({
+        where: { id },
+        data: {
+          ...(input.code !== undefined ? { code: input.code } : {}),
+          ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+        },
+      });
+
+      if (input.translations) {
+        await tx.label_translations.deleteMany({
+          where: { label_id: id },
+        });
+
+        await tx.label_translations.createMany({
+          data: input.translations.map((translation) => ({
+            label_id: id,
+            locale: translation.locale,
+            name: translation.name,
+          })),
+        });
+      }
+
+      return tx.labels.findUniqueOrThrow({
+        where: { id },
+        include: { label_translations: true },
+      });
     });
   }
 
@@ -94,32 +143,63 @@ export class LabelService {
     });
   }
 
-  toResponse(label: {
-    id: number;
-    code: string;
-    name: string;
-    enabled: boolean;
-    created_at: Date;
-    updated_at: Date;
-  }): AdminLabelResponse {
+  toResponse(label: LabelWithTranslations): AdminLabelResponse {
     return {
       id: label.id,
       code: label.code,
-      name: label.name,
+      translations: label.label_translations.map((translation) => ({
+        locale: translation.locale,
+        name: translation.name,
+      })),
       enabled: label.enabled,
       created_at: label.created_at,
       updated_at: label.updated_at,
     };
   }
 
-  private async ensureLabelIsUnique(
-    code: string,
-    name: string,
-    excludeId?: number,
+  private validateNameTranslations(
+    translations: AdminNameTranslationRequest[],
+    requireDefaultLocale: boolean,
   ) {
+    if (!translations?.length) {
+      throw new AppException({
+        code: AppCode.PARAMETER_ERROR,
+        message: 'translations is required',
+      });
+    }
+
+    const localeSet = new Set<string>();
+    translations.forEach((translation, index) => {
+      const locale = translation.locale.trim();
+      if (!locale) {
+        throw new AppException({
+          code: AppCode.PARAMETER_ERROR,
+          message: `translations[${index}].locale is required`,
+        });
+      }
+
+      if (localeSet.has(locale)) {
+        throw new AppException({
+          code: AppCode.PARAMETER_ERROR,
+          message: `translations[${index}].locale duplicated`,
+        });
+      }
+
+      localeSet.add(locale);
+    });
+
+    if (requireDefaultLocale && !localeSet.has('en')) {
+      throw new AppException({
+        code: AppCode.PARAMETER_ERROR,
+        message: 'translations must include en',
+      });
+    }
+  }
+
+  private async ensureLabelCodeIsUnique(code: string, excludeId?: number) {
     const existing = await this.prisma.labels.findFirst({
       where: {
-        OR: [{ code }, { name }],
+        code,
         ...(excludeId ? { id: { not: excludeId } } : {}),
       },
     });
@@ -127,10 +207,7 @@ export class LabelService {
     if (existing) {
       throw new AppException({
         code: AppCode.PARAMETER_ERROR,
-        message:
-          existing.code === code
-            ? 'Label code already exists'
-            : 'Label name already exists',
+        message: 'Label code already exists',
       });
     }
   }

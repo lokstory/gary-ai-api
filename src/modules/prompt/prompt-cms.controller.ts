@@ -22,6 +22,7 @@ import {
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import {
   ApiPaginatedResponse,
+  ApiRestArrayResponse,
   ApiRestResponse,
 } from '../../components/api-response.decorator';
 import { PositiveIntValidationPipe } from '../../components/positive-int-validation.pipe';
@@ -29,6 +30,7 @@ import {
   AdminCreatePromptRequest,
   AdminListPromptsQuery,
   AdminUpdatePromptRequest,
+  CmsUpdateFeaturedPromptsRequest,
   CmsPromptDetailResponse,
   CmsPromptFilesResponse,
   CmsPromptResponse,
@@ -72,17 +74,23 @@ export class PromptCmsController {
     return PaginatedResponse.success({ data, page, pageSize, total });
   }
 
-  @ApiOperation({ summary: 'Get prompt by id' })
-  @ApiRestResponse(CmsPromptDetailResponse)
-  @Get(':id')
-  async getPrompt(@Param('id', PositiveIntValidationPipe) id: number) {
-    const prompt = await this.promptService.getPromptById(id);
-    if (!prompt) {
-      return RestResponse.success();
-    }
+  @ApiOperation({ summary: 'List featured prompts' })
+  @ApiPaginatedResponse(CmsPromptDetailResponse)
+  @Get('featured')
+  async listFeaturedPrompts(@Query() query: AdminListPromptsQuery) {
+    const { items, page, pageSize, total } =
+      await this.promptService.listFeaturedPrompts({
+        page: query.page,
+        pageSize: query.page_size,
+        search: query.search,
+        all: false,
+      });
 
-    const data = await this.promptService.adminPromptToResponse(prompt);
-    return RestResponse.success(data);
+    const data = await Promise.all(
+      items.map((item) => this.promptService.adminPromptToResponse(item)),
+    );
+
+    return PaginatedResponse.success({ data, page, pageSize, total });
   }
 
   @ApiOperation({ summary: 'Create prompt' })
@@ -93,6 +101,21 @@ export class PromptCmsController {
     return RestResponse.success(
       await this.promptService.toAdminResponseWithCategory(prompt),
     );
+  }
+
+  @ApiOperation({ summary: 'Update featured prompts' })
+  @ApiRestArrayResponse(CmsPromptResponse)
+  @Patch('featured')
+  async updateFeaturedPrompts(
+    @Body() input: CmsUpdateFeaturedPromptsRequest,
+  ) {
+    const prompts = await this.promptService.updateFeaturedPrompts(
+      input.items ?? [],
+    );
+    const data = await Promise.all(
+      prompts.map((prompt) => this.promptService.toAdminResponseWithCategory(prompt)),
+    );
+    return RestResponse.success(data);
   }
 
   @ApiOperation({ summary: 'Update prompt' })
@@ -106,6 +129,19 @@ export class PromptCmsController {
     return RestResponse.success(
       await this.promptService.toAdminResponseWithCategory(prompt),
     );
+  }
+
+  @ApiOperation({ summary: 'Get prompt by id' })
+  @ApiRestResponse(CmsPromptDetailResponse)
+  @Get(':id')
+  async getPrompt(@Param('id', PositiveIntValidationPipe) id: number) {
+    const prompt = await this.promptService.getPromptById(id);
+    if (!prompt) {
+      return RestResponse.success();
+    }
+
+    const data = await this.promptService.adminPromptToResponse(prompt);
+    return RestResponse.success(data);
   }
 
   @ApiOperation({ summary: 'Update prompt files' })
@@ -128,6 +164,9 @@ export class PromptCmsController {
               },
               pdf: {
                 file_key: 'pdf_file',
+              },
+              zip: {
+                file_key: 'zip_file',
               },
               media: [
                 {

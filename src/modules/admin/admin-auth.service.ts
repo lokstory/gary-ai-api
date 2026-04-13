@@ -36,7 +36,7 @@ export class AdminAuthService {
       !admin.enabled ||
       !(await this.adminService.verifyPassword(admin.password_hash, password))
     ) {
-      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
+      throw new AppException({ code: AppCode.UNAUTHORIZED });
     }
 
     await this.adminService.markLoginSuccess(admin.id);

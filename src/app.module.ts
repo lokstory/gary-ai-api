@@ -15,6 +15,7 @@ import { OrderModule } from './modules/order/order.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { LabelModule } from './modules/label/label.module';
 import { CategoryModule } from './modules/category/category.module';
+import { LocaleMiddleware } from './common/locale.middleware';
 
 @Module({
   imports: [
@@ -36,6 +37,6 @@ import { CategoryModule } from './modules/category/category.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(RequestIdMiddleware).forRoutes('*');
+    consumer.apply(RequestIdMiddleware, LocaleMiddleware).forRoutes('*');
   }
 }

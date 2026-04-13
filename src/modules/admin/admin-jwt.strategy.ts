@@ -20,7 +20,7 @@ export class AdminJwtStrategy extends PassportStrategy(Strategy, 'admin-jwt') {
   async validate(payload: any) {
     const { sub, username, role, type } = payload;
     if (type !== 'admin') {
-      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
+      throw new AppException({ code: AppCode.UNAUTHORIZED });
     }
 
     return {

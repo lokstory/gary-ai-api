@@ -17,11 +17,11 @@ export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
     }
 
     if (err) {
-      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
+      throw new AppException({ code: AppCode.UNAUTHORIZED });
     }
 
     if (info && info.name === 'JsonWebTokenError') {
-      throw new AppException({ code: AppCode.CREDENTIALS_INVALID });
+      throw new AppException({ code: AppCode.UNAUTHORIZED });
     }
 
     return user ?? null;

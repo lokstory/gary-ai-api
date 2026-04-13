@@ -19,6 +19,8 @@ import { AppCode } from '../../models/app.code';
 import { AppException } from '../../models/app.exception';
 import { SwaggerBearer } from '../../models/constants';
 import { PaginatedResponse, RestResponse } from '../../models/rest.response';
+import { ApiLocaleHeader } from '../../common/api-locale-header.decorator';
+import { Locale } from '../../common/locale.decorator';
 import {
   ListPromptsQuery,
   PageQuery,
@@ -29,6 +31,7 @@ import { OptionalJwtAuthGuard } from '../auth/optional-jwt-auth.guard';
 import { PromptService } from './prompt.service';
 
 @Controller('prompts')
+@ApiLocaleHeader()
 export class PromptController {
   constructor(private readonly promptsService: PromptService) {}
 
@@ -40,9 +43,10 @@ export class PromptController {
   async listPrompts(
     @Query() query: ListPromptsQuery,
     @UserId() userId: bigint | null,
+    @Locale() locale: string,
   ) {
     const { items, page, pageSize, total } =
-      await this.promptsService.listPrompts({
+      await this.promptsService.listPublicPrompts({
         page: query.page,
         pageSize: query.page_size,
         search: query.search,
@@ -50,9 +54,33 @@ export class PromptController {
         categoryCode: query.category,
       });
 
-    const data = await this.promptsService.promptsToResponses(items, userId);
+    const data = await this.promptsService.promptsToResponses(
+      items,
+      userId,
+      locale,
+    );
 
     return PaginatedResponse.success({ data, page, pageSize, total });
+  }
+
+  @ApiOperation({ summary: 'List featured prompts' })
+  @ApiBearerAuth(SwaggerBearer.USER)
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiRestResponse(PromptResponse)
+  @Get('/featured')
+  async listFeaturedPrompts(
+    @UserId() userId: bigint | null,
+    @Locale() locale: string,
+  ) {
+    const { items } = await this.promptsService.listFeaturedPrompts({});
+
+    const data = await this.promptsService.promptsToResponses(
+      items,
+      userId,
+      locale,
+    );
+
+    return RestResponse.success(data);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -60,13 +88,21 @@ export class PromptController {
   @ApiOperation({ summary: 'List user favorite prompts' })
   @ApiPaginatedResponse(PromptResponse)
   @Get('/favorites')
-  async listFavorites(@UserId() userId: bigint, @Query() query: PageQuery) {
+  async listFavorites(
+    @UserId() userId: bigint,
+    @Query() query: PageQuery,
+    @Locale() locale: string,
+  ) {
     const { items, total } = await this.promptsService.listFavoritePrompts(
       userId,
       query,
     );
 
-    const data = await this.promptsService.promptsToResponses(items, userId);
+    const data = await this.promptsService.promptsToResponses(
+      items,
+      userId,
+      locale,
+    );
 
     return PaginatedResponse.success({
       data,
@@ -81,13 +117,21 @@ export class PromptController {
   @ApiOperation({ summary: 'List user purchased prompts' })
   @ApiPaginatedResponse(PromptResponse)
   @Get('/purchased')
-  async listPurchased(@UserId() userId: bigint, @Query() query: PageQuery) {
+  async listPurchased(
+    @UserId() userId: bigint,
+    @Query() query: PageQuery,
+    @Locale() locale: string,
+  ) {
     const { items, total } = await this.promptsService.listPurchasedPrompts(
       userId,
       query,
     );
 
-    const data = await this.promptsService.promptsToResponses(items, userId);
+    const data = await this.promptsService.promptsToResponses(
+      items,
+      userId,
+      locale,
+    );
 
     return PaginatedResponse.success({
       data,
@@ -141,6 +185,7 @@ export class PromptController {
   async getPrompt(
     @Param('uuid', UUIDValidationPipe) publicId: string,
     @UserId() userId: bigint | null,
+    @Locale() locale: string,
   ) {
     const prompt = await this.promptsService.getPromptByPublicId(publicId);
     if (!prompt) return RestResponse.success();
@@ -148,6 +193,7 @@ export class PromptController {
     const [data] = await this.promptsService.promptsToResponses(
       [prompt],
       userId,
+      locale,
     );
 
     return RestResponse.success(data);

@@ -13,6 +13,7 @@ CREATE TABLE users
   uuid           UUID        NOT NULL DEFAULT gen_random_uuid(),
   email          VARCHAR(255),
   name           VARCHAR(64),
+  locale         VARCHAR(16),
   password_hash  TEXT,
   google_id      VARCHAR(512),
   google_email   VARCHAR(255),
@@ -44,16 +45,13 @@ CREATE TABLE categories
 (
   id         SERIAL,
   code       VARCHAR(100)  NOT NULL,
-  name       VARCHAR(255)  NOT NULL,
   enabled    BOOLEAN       NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
   CONSTRAINT pk_categories
     PRIMARY KEY (id),
   CONSTRAINT uk_categories_code
-    UNIQUE (code),
-  CONSTRAINT uk_categories_name
-    UNIQUE (name)
+    UNIQUE (code)
 );
 
 CREATE INDEX idx_categories_enabled
@@ -62,34 +60,74 @@ CREATE INDEX idx_categories_enabled
 CREATE INDEX idx_categories_created_at
   ON categories (created_at);
 
+CREATE TABLE category_translations
+(
+  id          BIGSERIAL PRIMARY KEY,
+  category_id INT          NOT NULL,
+  locale      VARCHAR(16)  NOT NULL,
+  name        VARCHAR(255) NOT NULL,
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  CONSTRAINT fk_category_translations_category_id
+    FOREIGN KEY (category_id) REFERENCES categories (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT uk_category_translations_category_id_locale
+    UNIQUE (category_id, locale)
+);
+
+CREATE INDEX idx_category_translations_locale
+  ON category_translations (locale);
+
+CREATE INDEX idx_category_translations_category_id
+  ON category_translations (category_id);
+
 CREATE TABLE prompts
 (
-  id           BIGSERIAL PRIMARY KEY,
-  uuid         UUID    NOT NULL         DEFAULT gen_random_uuid() UNIQUE,
-  name         TEXT    NOT NULL,
-  description  TEXT,
-  media_type   VARCHAR(16),
-  category_id  INT,
-  price        INTEGER NOT NULL,
-  bonus_credit INTEGER NOT NULL         DEFAULT 0,
-  enabled      BOOLEAN NOT NULL         DEFAULT FALSE,
-  created_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  id            BIGSERIAL PRIMARY KEY,
+  uuid          UUID    NOT NULL         DEFAULT gen_random_uuid() UNIQUE,
+  media_type    VARCHAR(16),
+  category_id   INT,
+  price         INTEGER NOT NULL,
+  bonus_credit  INTEGER NOT NULL         DEFAULT 0,
+  featured_rank INTEGER NOT NULL        DEFAULT -1,
+  enabled       BOOLEAN NOT NULL         DEFAULT FALSE,
+  created_at    TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at    TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   CONSTRAINT fk_prompts_category_id
     FOREIGN KEY (category_id) REFERENCES categories (id) ON UPDATE CASCADE ON DELETE SET NULL
 );
-
-CREATE INDEX idx_prompts_name
-  ON prompts (name);
-
-CREATE INDEX idx_prompts_description
-  ON prompts (description);
 
 CREATE INDEX idx_prompts_category_id
   ON prompts (category_id);
 
 CREATE INDEX idx_prompts_media_type
   ON prompts (media_type);
+
+CREATE INDEX idx_prompts_featured_rank
+  ON prompts (featured_rank);
+
+CREATE INDEX idx_prompts_enabled_featured_rank_created_at
+  ON prompts (enabled, featured_rank, created_at DESC);
+
+CREATE TABLE prompt_translations
+(
+  id          BIGSERIAL PRIMARY KEY,
+  prompt_id   BIGINT      NOT NULL,
+  locale      VARCHAR(16) NOT NULL,
+  name        TEXT        NOT NULL,
+  description TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT fk_prompt_translations_prompt_id
+    FOREIGN KEY (prompt_id) REFERENCES prompts (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT uk_prompt_translations_prompt_id_locale
+    UNIQUE (prompt_id, locale)
+);
+
+CREATE INDEX idx_prompt_translations_locale
+  ON prompt_translations (locale);
+
+CREATE INDEX idx_prompt_translations_prompt_id
+  ON prompt_translations (prompt_id);
 
 CREATE TABLE files
 (
@@ -246,16 +284,13 @@ CREATE TABLE labels
 (
   id         SERIAL,
   code       VARCHAR(100)  NOT NULL,
-  name       VARCHAR(255)  NOT NULL,
   enabled    BOOLEAN       NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
   CONSTRAINT pk_labels
     PRIMARY KEY (id),
   CONSTRAINT uk_labels_code
-    UNIQUE (code),
-  CONSTRAINT uk_labels_name
-    UNIQUE (name)
+    UNIQUE (code)
 );
 
 CREATE INDEX idx_labels_enabled
@@ -263,6 +298,26 @@ CREATE INDEX idx_labels_enabled
 
 CREATE INDEX idx_labels_created_at
   ON labels (created_at);
+
+CREATE TABLE label_translations
+(
+  id          BIGSERIAL PRIMARY KEY,
+  label_id    INT          NOT NULL,
+  locale      VARCHAR(16)  NOT NULL,
+  name        VARCHAR(255) NOT NULL,
+  created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  CONSTRAINT fk_label_translations_label_id
+    FOREIGN KEY (label_id) REFERENCES labels (id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT uk_label_translations_label_id_locale
+    UNIQUE (label_id, locale)
+);
+
+CREATE INDEX idx_label_translations_locale
+  ON label_translations (locale);
+
+CREATE INDEX idx_label_translations_label_id
+  ON label_translations (label_id);
 
 CREATE TABLE prompt_labels
 (

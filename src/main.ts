@@ -26,11 +26,12 @@ async function bootstrap() {
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api-docs', app, documentFactory);
 
-  app.enableCors({
-    origin: ['*'],
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    credentials: true, // 如果有用 cookie/session
-  });
+  app.enableCors();
+  // app.enableCors({
+  //   origin: ['*'],
+  //   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+  //   credentials: false,
+  // });
 
   await app.listen(process.env.PORT ?? 3000);
 }

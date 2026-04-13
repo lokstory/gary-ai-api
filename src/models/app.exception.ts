@@ -6,7 +6,7 @@ export class AppException extends HttpException {
     code = AppCode.SERVER_ERROR,
     message,
     errors,
-    status = HttpStatus.OK,
+    status,
   }: {
     code?: AppCodeType;
     message?: string;
@@ -15,6 +15,12 @@ export class AppException extends HttpException {
   } = {}) {
     const [codeValue, defaultMessage] = code;
 
+    if (!status) {
+      status =
+        codeValue >= 400 && codeValue < 600
+          ? (codeValue as HttpStatus)
+          : HttpStatus.OK;
+    }
     super(
       {
         code: codeValue,

@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  NotFoundException,
   Param,
   Res,
   UseGuards,
@@ -20,7 +19,7 @@ import { AppCode } from '../../models/app.code';
 import { SwaggerBearer } from '../../models/constants';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { FileService } from './file.service';
-import { FileCategory } from '../../models/enums';
+import { FileCategory, FileType } from '../../models/enums';
 import { isEnumEqual } from '../../utils/enum.util';
 
 @ApiTags('Files')
@@ -28,18 +27,17 @@ import { isEnumEqual } from '../../utils/enum.util';
 export class FileController {
   constructor(private readonly fileService: FileService) {}
 
-  @ApiOperation({ summary: 'Download purchased prompt pdf by file UUID' })
+  @ApiOperation({ summary: 'Download purchased prompt file by file UUID' })
   @ApiBearerAuth(SwaggerBearer.USER)
-  @ApiProduces('application/pdf')
+  @ApiProduces('application/pdf', 'application/zip')
   @UseGuards(JwtAuthGuard)
   @Get(':uuid')
-  async downloadPromptPdf(
+  async downloadPromptFile(
     @Param('uuid', UUIDValidationPipe) fileUuid: string,
     @UserId() userId: bigint,
     @Res() res: Response,
   ) {
     const file = await this.fileService.getFileByUuid(fileUuid);
-    console.log('file', file);
     if (
       !file ||
       file.ref_table !== 'prompts' ||
@@ -50,15 +48,25 @@ export class FileController {
 
     // const purchased = await this.fileService.userOwnsPromptFile(userId, file);
     // if (!purchased) {
-    //   throw new AppException({ code: AppCode.NOT_FOUND });
+    //   throw new AppException({ code: AppCode.FORBIDDEN });
     // }
 
     const { stream, contentType } =
       await this.fileService.getStoredFileStream(file);
-    res.setHeader('Content-Type', contentType ?? 'application/pdf');
+    const fallbackContentType = isEnumEqual(
+      FileType.ZIP,
+      file.file_type as FileType,
+    )
+      ? 'application/zip'
+      : 'application/pdf';
+    const extension = isEnumEqual(FileType.ZIP, file.file_type as FileType)
+      ? 'zip'
+      : 'pdf';
+
+    res.setHeader('Content-Type', contentType ?? fallbackContentType);
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${file.uuid}.pdf"`,
+      `attachment; filename="${file.uuid}.${extension}"`,
     );
 
     stream.pipe(res);

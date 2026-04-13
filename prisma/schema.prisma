@@ -20,6 +20,7 @@ model users {
   email_verified        Boolean                 @default(false)
   created_at            DateTime                @default(now()) @db.Timestamptz(6)
   updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  locale                String?                 @db.VarChar(16)
   cart_items            cart_items[]
   orders                orders[]
   user_prompt_favorites user_prompt_favorites[]
@@ -63,8 +64,6 @@ model kv_store {
 model prompts {
   id                    BigInt                  @id @default(autoincrement())
   uuid                  String                  @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                  String
-  description           String?
   price                 Int
   bonus_credit          Int                     @default(0)
   enabled               Boolean                 @default(false)
@@ -72,15 +71,17 @@ model prompts {
   updated_at            DateTime?               @default(now()) @db.Timestamptz(6)
   media_type            String?                 @db.VarChar(16)
   category_id           Int?
+  featured_rank         Int                     @default(-1)
   prompt_labels         prompt_labels[]
+  prompt_translations   prompt_translations[]
   categories            categories?             @relation(fields: [category_id], references: [id], map: "fk_prompts_category_id")
   user_prompt_favorites user_prompt_favorites[]
   user_prompts          user_prompts[]
 
-  @@index([description], map: "idx_prompts_description")
-  @@index([name], map: "idx_prompts_name")
   @@index([category_id], map: "idx_prompts_category_id")
   @@index([media_type], map: "idx_prompts_media_type")
+  @@index([enabled, featured_rank, created_at(sort: Desc)], map: "idx_prompts_enabled_featured_rank_created_at")
+  @@index([featured_rank], map: "idx_prompts_featured_rank")
 }
 
 model user_prompt_favorites {
@@ -192,26 +193,26 @@ model admins {
 }
 
 model labels {
-  id            Int             @id(map: "pk_labels") @default(autoincrement())
-  code          String          @unique(map: "uk_labels_code") @db.VarChar(100)
-  name          String          @unique(map: "uk_labels_name") @db.VarChar(255)
-  enabled       Boolean         @default(true)
-  created_at    DateTime        @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime        @default(now()) @db.Timestamptz(6)
-  prompt_labels prompt_labels[]
+  id                 Int                  @id(map: "pk_labels") @default(autoincrement())
+  code               String               @unique(map: "uk_labels_code") @db.VarChar(100)
+  enabled            Boolean              @default(true)
+  created_at         DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime             @default(now()) @db.Timestamptz(6)
+  label_translations label_translations[]
+  prompt_labels      prompt_labels[]
 
   @@index([created_at], map: "idx_labels_created_at")
   @@index([enabled], map: "idx_labels_enabled")
 }
 
 model categories {
-  id         Int       @id(map: "pk_categories") @default(autoincrement())
-  code       String    @unique(map: "uk_categories_code") @db.VarChar(100)
-  name       String    @unique(map: "uk_categories_name") @db.VarChar(255)
-  enabled    Boolean   @default(true)
-  created_at DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at DateTime  @default(now()) @db.Timestamptz(6)
-  prompts    prompts[]
+  id                    Int                     @id(map: "pk_categories") @default(autoincrement())
+  code                  String                  @unique(map: "uk_categories_code") @db.VarChar(100)
+  enabled               Boolean                 @default(true)
+  created_at            DateTime                @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime                @default(now()) @db.Timestamptz(6)
+  category_translations category_translations[]
+  prompts               prompts[]
 
   @@index([created_at], map: "idx_categories_created_at")
   @@index([enabled], map: "idx_categories_enabled")
@@ -226,4 +227,47 @@ model prompt_labels {
 
   @@id([prompt_id, label_id], map: "pk_prompt_labels")
   @@index([label_id], map: "idx_prompt_labels_label_id")
+}
+
+model category_translations {
+  id          BigInt     @id @default(autoincrement())
+  category_id Int
+  locale      String     @db.VarChar(16)
+  name        String     @db.VarChar(255)
+  created_at  DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime   @default(now()) @db.Timestamptz(6)
+  categories  categories @relation(fields: [category_id], references: [id], onDelete: Cascade, map: "fk_category_translations_category_id")
+
+  @@unique([category_id, locale], map: "uk_category_translations_category_id_locale")
+  @@index([category_id], map: "idx_category_translations_category_id")
+  @@index([locale], map: "idx_category_translations_locale")
+}
+
+model label_translations {
+  id         BigInt   @id @default(autoincrement())
+  label_id   Int
+  locale     String   @db.VarChar(16)
+  name       String   @db.VarChar(255)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  labels     labels   @relation(fields: [label_id], references: [id], onDelete: Cascade, map: "fk_label_translations_label_id")
+
+  @@unique([label_id, locale], map: "uk_label_translations_label_id_locale")
+  @@index([label_id], map: "idx_label_translations_label_id")
+  @@index([locale], map: "idx_label_translations_locale")
+}
+
+model prompt_translations {
+  id          BigInt   @id @default(autoincrement())
+  prompt_id   BigInt
+  locale      String   @db.VarChar(16)
+  name        String
+  description String?
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+  prompts     prompts  @relation(fields: [prompt_id], references: [id], onDelete: Cascade, map: "fk_prompt_translations_prompt_id")
+
+  @@unique([prompt_id, locale], map: "uk_prompt_translations_prompt_id_locale")
+  @@index([locale], map: "idx_prompt_translations_locale")
+  @@index([prompt_id], map: "idx_prompt_translations_prompt_id")
 }

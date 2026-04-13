@@ -125,6 +125,14 @@ export class UserInfoResponse {
   @ApiProperty({ description: 'Nickname' })
   name?: string | null;
 
+  @ApiPropertyOptional({
+    description: 'Preferred locale',
+    nullable: true,
+    maxLength: 16,
+    example: 'en',
+  })
+  locale?: string | null;
+
   constructor(partial: Partial<UserInfoResponse>) {
     Object.assign(this, partial);
   }
@@ -210,6 +218,9 @@ export class PromptResponse {
 
   @ApiPropertyOptional({ type: PromptFileResponse, nullable: true })
   pdf?: PromptFileResponse | null;
+
+  @ApiPropertyOptional({ type: PromptFileResponse, nullable: true })
+  zip?: PromptFileResponse | null;
 
   @ApiProperty({ type: [PromptFileResponse] })
   files: PromptFileResponse[];
@@ -297,4 +308,15 @@ export class UpdateUserInfoRequest {
   @MinLength(1)
   @MaxLength(64)
   name?: string;
+
+  @ApiPropertyOptional({
+    description: 'Preferred locale',
+    nullable: true,
+    maxLength: 16,
+    example: 'en',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  locale?: string | null;
 }
