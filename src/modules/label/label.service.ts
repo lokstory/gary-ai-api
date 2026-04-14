@@ -10,6 +10,7 @@ import {
   AdminUpdateLabelRequest,
 } from '../../models/admin-api.io';
 import { label_translations } from '../../../generated/prisma/client';
+import { PublicNamedItemResponse } from '../../models/user-api.io';
 
 type LabelWithTranslations = {
   id: number;
@@ -19,6 +20,8 @@ type LabelWithTranslations = {
   updated_at: Date;
   label_translations: label_translations[];
 };
+
+const DEFAULT_LOCALE = 'en';
 
 @Injectable()
 export class LabelService {
@@ -68,6 +71,25 @@ export class LabelService {
       where: { id },
       include: { label_translations: true },
     });
+  }
+
+  async listEnabledLabels() {
+    return this.prisma.labels.findMany({
+      where: { enabled: true },
+      include: { label_translations: true },
+      orderBy: [{ created_at: 'desc' }],
+    });
+  }
+
+  async listEnabledLabelsForLocale(
+    locale: string = DEFAULT_LOCALE,
+  ): Promise<PublicNamedItemResponse[]> {
+    const labels = await this.listEnabledLabels();
+
+    return labels.map((label) => ({
+      code: label.code,
+      name: this.resolveNameTranslation(label.label_translations, locale),
+    }));
   }
 
   async createLabel(input: AdminCreateLabelRequest) {
@@ -194,6 +216,19 @@ export class LabelService {
         message: 'translations must include en',
       });
     }
+  }
+
+  private resolveNameTranslation(
+    translations: label_translations[],
+    locale: string,
+  ) {
+    return (
+      translations.find((translation) => translation.locale === locale)?.name ??
+      translations.find((translation) => translation.locale === DEFAULT_LOCALE)
+        ?.name ??
+      translations[0]?.name ??
+      ''
+    );
   }
 
   private async ensureLabelCodeIsUnique(code: string, excludeId?: number) {

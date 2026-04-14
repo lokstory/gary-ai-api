@@ -10,6 +10,7 @@ import {
   AdminUpdateCategoryRequest,
 } from '../../models/admin-api.io';
 import { category_translations } from '../../../generated/prisma/client';
+import { PublicNamedItemResponse } from '../../models/user-api.io';
 
 type CategoryWithTranslations = {
   id: number;
@@ -19,6 +20,8 @@ type CategoryWithTranslations = {
   updated_at: Date;
   category_translations: category_translations[];
 };
+
+const DEFAULT_LOCALE = 'en';
 
 @Injectable()
 export class CategoryService {
@@ -68,6 +71,25 @@ export class CategoryService {
       where: { id },
       include: { category_translations: true },
     });
+  }
+
+  async listEnabledCategories() {
+    return this.prisma.categories.findMany({
+      where: { enabled: true },
+      include: { category_translations: true },
+      orderBy: [{ created_at: 'desc' }],
+    });
+  }
+
+  async listEnabledCategoriesForLocale(
+    locale: string = DEFAULT_LOCALE,
+  ): Promise<PublicNamedItemResponse[]> {
+    const categories = await this.listEnabledCategories();
+
+    return categories.map((category) => ({
+      code: category.code,
+      name: this.resolveNameTranslation(category.category_translations, locale),
+    }));
   }
 
   async createCategory(input: AdminCreateCategoryRequest) {
@@ -194,6 +216,19 @@ export class CategoryService {
         message: 'translations must include en',
       });
     }
+  }
+
+  private resolveNameTranslation(
+    translations: category_translations[],
+    locale: string,
+  ) {
+    return (
+      translations.find((translation) => translation.locale === locale)?.name ??
+      translations.find((translation) => translation.locale === DEFAULT_LOCALE)
+        ?.name ??
+      translations[0]?.name ??
+      ''
+    );
   }
 
   private async ensureCategoryCodeIsUnique(code: string, excludeId?: number) {

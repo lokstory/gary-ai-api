@@ -25,6 +25,7 @@ import { AppCode } from '../../models/app.code';
 import {
   ApiEmptyRestResponse,
   ApiPaginatedResponse,
+  ApiRestArrayResponse,
   ApiRestResponse,
 } from '../../components/api-response.decorator';
 
@@ -52,6 +53,16 @@ export class CategoryCmsController {
       pageSize,
       total,
     });
+  }
+
+  @ApiOperation({ summary: 'List enabled categories' })
+  @ApiRestArrayResponse(AdminCategoryResponse)
+  @Get('/enabled')
+  async listEnabledCategories() {
+    const categories = await this.categoryService.listEnabledCategories();
+    return RestResponse.success(
+      categories.map((item) => this.categoryService.toResponse(item)),
+    );
   }
 
   @ApiOperation({ summary: 'Get category by id' })

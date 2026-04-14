@@ -138,6 +138,22 @@ export class UserInfoResponse {
   }
 }
 
+export class PublicNamedItemResponse {
+  @ApiProperty()
+  code: string;
+
+  @ApiProperty()
+  name: string;
+}
+
+export class WebConfigResponse {
+  @ApiProperty({ type: [PublicNamedItemResponse] })
+  prompt_labels: PublicNamedItemResponse[];
+
+  @ApiProperty({ type: [PublicNamedItemResponse] })
+  prompt_categories: PublicNamedItemResponse[];
+}
+
 export class PromptFileResponse {
   @ApiProperty()
   uuid: string;

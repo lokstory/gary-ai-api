@@ -25,6 +25,7 @@ import { AppCode } from '../../models/app.code';
 import {
   ApiEmptyRestResponse,
   ApiPaginatedResponse,
+  ApiRestArrayResponse,
   ApiRestResponse,
 } from '../../components/api-response.decorator';
 
@@ -53,6 +54,16 @@ export class LabelCmsController {
       pageSize,
       total,
     });
+  }
+
+  @ApiOperation({ summary: 'List enabled labels' })
+  @ApiRestArrayResponse(AdminLabelResponse)
+  @Get('/enabled')
+  async listEnabledLabels() {
+    const labels = await this.labelService.listEnabledLabels();
+    return RestResponse.success(
+      labels.map((item) => this.labelService.toResponse(item)),
+    );
   }
 
   @ApiOperation({ summary: 'Get label by id' })

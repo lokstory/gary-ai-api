@@ -442,7 +442,10 @@ export class PromptService {
       this.attachPromptTranslationsToPrompts([prompt]),
     ]);
     return {
-      ...this.toAdminResponse(prompt, promptTranslationMap.get(prompt.id) || []),
+      ...this.toAdminResponse(
+        prompt,
+        promptTranslationMap.get(prompt.id) || [],
+      ),
       category: categoryMap.get(prompt.id) ?? null,
     };
   }

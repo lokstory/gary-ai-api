@@ -16,6 +16,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { LabelModule } from './modules/label/label.module';
 import { CategoryModule } from './modules/category/category.module';
 import { LocaleMiddleware } from './common/locale.middleware';
+import { WebModule } from './modules/web/web.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { LocaleMiddleware } from './common/locale.middleware';
     UserModule,
     RedisModule,
     PromptModule,
+    WebModule,
     FileModule,
     CartModule,
     OrderModule,
