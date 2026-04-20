@@ -68,7 +68,7 @@ export class OrderService implements OnModuleInit {
     const promptItems = cartItems.filter((i) =>
       isEnumEqual(OrderItemType.PROMPT, i.item_type),
     );
-const promptIds = promptItems.map((i) => i.item_id);
+    const promptIds = promptItems.map((i) => i.item_id);
     const locale = 'en';
 
     const prompts =
@@ -453,6 +453,7 @@ const promptIds = promptItems.map((i) => i.item_id);
       line_items: stripeItems,
       success_url: successUrl,
       cancel_url: cancelUrl,
+      client_reference_id: order.uuid,
     });
 
     const payment = await this.prisma.payments.create({

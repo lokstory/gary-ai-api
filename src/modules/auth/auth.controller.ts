@@ -5,6 +5,8 @@ import {
   AuthLoginResponse,
   EmailRegisterRequest,
   EmailRegisterVerifyRequest,
+  ForgotPasswordRequest,
+  ForgotPasswordVerifyRequest,
   GoogleLoginRequest,
   LoginRequest,
 } from '../../models/user-api.io';
@@ -50,6 +52,22 @@ export class AuthController {
   @Post('/login/google')
   async googleLogin(@Body() input: GoogleLoginRequest) {
     const data = await this.authService.loginByGoogle(input.token);
+    return RestResponse.success(data);
+  }
+
+  @ApiOperation({ summary: 'Send forgot password OTP' })
+  @ApiEmptyRestResponse()
+  @Post('/forgot-password')
+  async forgotPassword(@Body() input: ForgotPasswordRequest) {
+    await this.authService.sendForgotPasswordCode(input);
+    return RestResponse.success();
+  }
+
+  @ApiOperation({ summary: 'Verify forgot password OTP and reset password' })
+  @ApiRestResponse(AuthLoginResponse)
+  @Post('/forgot-password/verify')
+  async verifyForgotPassword(@Body() input: ForgotPasswordVerifyRequest) {
+    const data = await this.authService.verifyForgotPassword(input);
     return RestResponse.success(data);
   }
 }

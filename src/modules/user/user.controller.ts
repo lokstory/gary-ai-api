@@ -26,7 +26,8 @@ export class UserController {
     const user: users = (await this.usersService.findByPublicId(
       uuid as string,
     )) as users;
-    const { email, name, locale } = user;
+    const email = user.email ?? user.google_email;
+    const { name, locale } = user;
 
     const data = new UserInfoResponse({
       uuid,
@@ -51,7 +52,8 @@ export class UserController {
       body,
     );
 
-    const { email, name, locale } = user;
+    const email = user.email ?? user.google_email;
+    const { name, locale } = user;
 
     const data = new UserInfoResponse({
       uuid,

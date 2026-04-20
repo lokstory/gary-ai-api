@@ -46,17 +46,6 @@ export class EmailRegisterRequest {
     context: { code: AppCode.PARAMETER_ERROR[0] },
   })
   password: string;
-
-  @ApiPropertyOptional({
-    description: 'Nickname',
-    maxLength: 64,
-    example: 'Tom',
-  })
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  @MaxLength(64)
-  name?: string;
 }
 
 export class EmailRegisterVerifyRequest {
@@ -91,6 +80,36 @@ export class GoogleLoginRequest {
   @ApiProperty({ example: 'Google credential (id token)' })
   @IsString()
   token: string;
+}
+
+export class ForgotPasswordRequest {
+  @ApiProperty({ example: 'test@gmail.com' })
+  @IsEmail(undefined, {
+    context: { code: AppCode.PARAMETER_ERROR[0] },
+  })
+  email: string;
+}
+
+export class ForgotPasswordVerifyRequest {
+  @ApiProperty({ example: 'test@gmail.com' })
+  @IsEmail(undefined, {
+    context: { code: AppCode.PARAMETER_ERROR[0] },
+  })
+  email: string;
+
+  @ApiProperty({ example: '123456' })
+  @Matches(/^\d{6}$/, {
+    context: { code: AppCode.PARAMETER_ERROR[0] },
+  })
+  otp: string;
+
+  @ApiProperty({ example: 'Aa123456@' })
+  @Matches(PASSWORD_REGEX, {
+    message:
+      'password must contain uppercase, lowercase, number and special character',
+    context: { code: AppCode.PARAMETER_ERROR[0] },
+  })
+  new_password: string;
 }
 
 export class AuthLoginResponse {
