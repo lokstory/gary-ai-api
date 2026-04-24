@@ -22,12 +22,24 @@ export class RedisService {
     }
   }
 
+  async setNx(key: string, value: string, ttlSeconds: number) {
+    return await this.client.set(key, value, 'EX', ttlSeconds, 'NX');
+  }
+
   async setJson(key: string, value: any, ttlSeconds?: number) {
     return await this.set(key, JSON.stringify(value), ttlSeconds);
   }
 
   async get(key: string): Promise<any> {
     return await this.client.get(key);
+  }
+
+  async incrWithExpire(key: string, ttlSeconds: number) {
+    const count = await this.client.incr(key);
+    if (count === 1) {
+      await this.client.expire(key, ttlSeconds);
+    }
+    return count;
   }
 
   async getJson(key: string): Promise<any> {

@@ -21,6 +21,7 @@ export const AppCode = {
     'User already registered with email',
   ] as const,
   CREDENTIAL_INVALID: [1009, 'Invalid credential'] as const,
+  OTP_RATE_LIMITED: [1010, 'OTP rate limited'] as const,
 } as const;
 
 export type AppCodeKey = keyof typeof AppCode;

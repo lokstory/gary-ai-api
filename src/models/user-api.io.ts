@@ -62,6 +62,14 @@ export class EmailRegisterVerifyRequest {
   otp: string;
 }
 
+export class EmailRegisterResendRequest {
+  @ApiProperty({ example: 'test@gmail.com' })
+  @IsEmail(undefined, {
+    context: { code: AppCode.PARAMETER_ERROR[0] },
+  })
+  email: string;
+}
+
 export class LoginRequest {
   @ApiProperty({ example: 'test@gmail.com' })
   @IsEmail(undefined, {
@@ -83,6 +91,14 @@ export class GoogleLoginRequest {
 }
 
 export class ForgotPasswordRequest {
+  @ApiProperty({ example: 'test@gmail.com' })
+  @IsEmail(undefined, {
+    context: { code: AppCode.PARAMETER_ERROR[0] },
+  })
+  email: string;
+}
+
+export class ForgotPasswordResendRequest {
   @ApiProperty({ example: 'test@gmail.com' })
   @IsEmail(undefined, {
     context: { code: AppCode.PARAMETER_ERROR[0] },

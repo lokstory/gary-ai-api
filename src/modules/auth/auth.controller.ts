@@ -4,8 +4,10 @@ import { AuthService } from './auth.service.js';
 import {
   AuthLoginResponse,
   EmailRegisterRequest,
+  EmailRegisterResendRequest,
   EmailRegisterVerifyRequest,
   ForgotPasswordRequest,
+  ForgotPasswordResendRequest,
   ForgotPasswordVerifyRequest,
   GoogleLoginRequest,
   LoginRequest,
@@ -25,6 +27,14 @@ export class AuthController {
   @Post('register')
   async emailRegistration(@Body() input: EmailRegisterRequest) {
     await this.authService.register(input);
+    return RestResponse.success();
+  }
+
+  @ApiOperation({ summary: 'Resend email registration OTP' })
+  @ApiEmptyRestResponse()
+  @Post('register/resend')
+  async resendEmailRegistration(@Body() input: EmailRegisterResendRequest) {
+    await this.authService.resendEmailRegistrationCode(input.email);
     return RestResponse.success();
   }
 
@@ -60,6 +70,14 @@ export class AuthController {
   @Post('/forgot-password')
   async forgotPassword(@Body() input: ForgotPasswordRequest) {
     await this.authService.sendForgotPasswordCode(input);
+    return RestResponse.success();
+  }
+
+  @ApiOperation({ summary: 'Resend forgot password OTP' })
+  @ApiEmptyRestResponse()
+  @Post('/forgot-password/resend')
+  async resendForgotPassword(@Body() input: ForgotPasswordResendRequest) {
+    await this.authService.resendForgotPasswordCode(input.email);
     return RestResponse.success();
   }
 
