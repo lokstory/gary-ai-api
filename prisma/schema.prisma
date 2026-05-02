@@ -161,6 +161,7 @@ model payments {
   orders              orders    @relation(fields: [order_id], references: [id], onDelete: Cascade)
 
   @@unique([provider, provider_payment_id], map: "uk_payments_provider_payment_id")
+  @@unique([provider, provider_session_id], map: "uk_payments_provider_session_id")
   @@index([order_id], map: "idx_payments_order_id")
   @@index([provider, status], map: "idx_payments_provider_status")
 }

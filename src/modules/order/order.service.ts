@@ -44,6 +44,7 @@ type OrderWithRelations = Awaited<
 export class OrderService implements OnModuleInit {
   private readonly logger = new Logger(OrderService.name);
   private static readonly REUSE_CHECKOUT_WINDOW_MS = 60 * 60 * 1000;
+  private static readonly CHECKOUT_SESSION_SYNC_WINDOW_MS = 15 * 1000;
   private stripe: Stripe;
 
   constructor(
@@ -56,7 +57,10 @@ export class OrderService implements OnModuleInit {
     this.stripe = new Stripe(this.config.getOrThrow('STRIPE_SECRET_KEY'));
   }
 
-  async checkoutFromCart(userId: bigint): Promise<OrderResponse> {
+  async checkoutFromCart(
+    userId: bigint,
+    locale: string,
+  ): Promise<OrderResponse> {
     const cartItems = await this.prisma.cart_items.findMany({
       where: { user_id: userId },
     });
@@ -69,8 +73,6 @@ export class OrderService implements OnModuleInit {
       isEnumEqual(OrderItemType.PROMPT, i.item_type),
     );
     const promptIds = promptItems.map((i) => i.item_id);
-    const locale = 'en';
-
     const prompts =
       promptIds.length > 0
         ? await this.prisma.prompts.findMany({
@@ -103,13 +105,14 @@ export class OrderService implements OnModuleInit {
       })
       .filter((i): i is NonNullable<typeof i> => i !== null);
 
-    return this.checkout(userId, lineItems);
+    return this.checkout(userId, lineItems, locale);
   }
 
   async checkoutDirect(
     userId: bigint,
     itemType: string,
     itemId: bigint,
+    locale: string,
   ): Promise<OrderResponse | null> {
     let name = '';
     let unitPrice = 0;
@@ -119,7 +122,7 @@ export class OrderService implements OnModuleInit {
         where: { id: itemId },
         include: {
           prompt_translations: {
-            where: { locale: 'en' },
+            where: { locale },
             take: 1,
           },
         },
@@ -142,12 +145,13 @@ export class OrderService implements OnModuleInit {
       },
     ];
 
-    return this.checkout(userId, lineItems);
+    return this.checkout(userId, lineItems, locale);
   }
 
   private async checkout(
     userId: bigint,
     lineItems: CheckoutLineItem[],
+    locale: string,
   ): Promise<OrderResponse> {
     const fingerprint = this.buildLineItemsFingerprint(lineItems);
     const now = new Date();
@@ -192,7 +196,7 @@ export class OrderService implements OnModuleInit {
     });
 
     if (prepared.type === 'reuse') {
-      return this.getOrderByUuidOrThrow(userId, prepared.orderUuid);
+      return this.getOrderByUuidOrThrow(userId, prepared.orderUuid, locale);
     }
 
     await this.expireStripeSessions(prepared.staleSessionIds);
@@ -201,7 +205,7 @@ export class OrderService implements OnModuleInit {
       prepared.order,
       lineItems,
     );
-    return this.getOrderByUuidOrThrow(userId, createdOrder.uuid);
+    return this.getOrderByUuidOrThrow(userId, createdOrder.uuid, locale);
   }
 
   private async acquireCheckoutLock(
@@ -437,7 +441,10 @@ export class OrderService implements OnModuleInit {
     order: { id: bigint; uuid: string },
     lineItems: CheckoutLineItem[],
   ): Promise<{ id: bigint; uuid: string }> {
-    const successUrl = this.config.getOrThrow<string>('STRIPE_SUCCESS_URL');
+    const successUrl = this.buildStripeSuccessUrl(
+      this.config.getOrThrow<string>('STRIPE_SUCCESS_URL'),
+      order.uuid,
+    );
     const cancelUrl = this.config.getOrThrow<string>('STRIPE_CANCEL_URL');
     const stripeItems = lineItems.map((item) => ({
       price_data: {
@@ -471,6 +478,21 @@ export class OrderService implements OnModuleInit {
     });
 
     return order;
+  }
+
+  private buildStripeSuccessUrl(successUrl: string, orderUuid: string) {
+    const checkoutSessionIdTemplate = '{CHECKOUT_SESSION_ID}';
+    const url = new URL(successUrl);
+
+    url.searchParams.set('session_id', checkoutSessionIdTemplate);
+    url.searchParams.set('order_uuid', orderUuid);
+
+    return url
+      .toString()
+      .replace(
+        encodeURIComponent(checkoutSessionIdTemplate),
+        checkoutSessionIdTemplate,
+      );
   }
 
   async handleStripeWebhook(rawBody: Buffer, sig: string): Promise<void> {
@@ -606,7 +628,7 @@ export class OrderService implements OnModuleInit {
     );
   }
 
-  async listOrders(userId: bigint, options: PageQuery) {
+  async listOrders(userId: bigint, options: PageQuery, locale: string) {
     const skip = (options.page - 1) * options.page_size;
     const take = options.page_size;
 
@@ -627,7 +649,7 @@ export class OrderService implements OnModuleInit {
       this.prisma.orders.count({ where: { user_id: userId } }),
     ]);
 
-    const items = await this.toOrderResponses(orders, userId);
+    const items = await this.toOrderResponses(orders, userId, locale);
 
     return { items, total };
   }
@@ -635,16 +657,124 @@ export class OrderService implements OnModuleInit {
   async getOrderByUuid(
     userId: bigint,
     uuid: string,
+    locale: string,
   ): Promise<OrderResponse | null> {
     const order = await this.findOrderRecordByUuid(userId, uuid);
     if (!order) return null;
 
-    const [response] = await this.toOrderResponses([order], userId);
+    const [response] = await this.toOrderResponses([order], userId, locale);
     return response ?? null;
   }
 
-  private async getOrderByUuidOrThrow(userId: bigint, uuid: string) {
-    const order = await this.getOrderByUuid(userId, uuid);
+  async syncOrderByCheckoutSession(
+    userId: bigint,
+    sessionId: string,
+    locale: string,
+  ): Promise<OrderResponse | null> {
+    const order = await this.findOrderRecordByCheckoutSession(
+      userId,
+      sessionId,
+    );
+    if (!order) return null;
+
+    const payment = order.payments[0] ?? null;
+    if (payment) {
+      await this.syncPendingCheckoutSession(payment, sessionId);
+    }
+
+    const refreshedOrder = await this.findOrderRecordByCheckoutSession(
+      userId,
+      sessionId,
+    );
+    if (!refreshedOrder) return null;
+
+    const [response] = await this.toOrderResponses(
+      [refreshedOrder],
+      userId,
+      locale,
+    );
+    return response ?? null;
+  }
+
+  private async findOrderRecordByCheckoutSession(
+    userId: bigint,
+    sessionId: string,
+  ) {
+    return this.prisma.orders.findFirst({
+      where: {
+        user_id: userId,
+        payments: {
+          some: {
+            provider: PaymentProvider.STRIPE,
+            provider_session_id: sessionId,
+          },
+        },
+      },
+      include: {
+        order_items: true,
+        payments: {
+          where: {
+            provider: PaymentProvider.STRIPE,
+            provider_session_id: sessionId,
+          },
+          take: 1,
+        },
+      },
+    });
+  }
+
+  private async syncPendingCheckoutSession(
+    payment: {
+      id: bigint;
+      status: string;
+      updated_at: Date;
+      raw_payload: unknown;
+    },
+    sessionId: string,
+  ) {
+    if (!isEnumEqual(PaymentStatus.PENDING, payment.status)) {
+      return;
+    }
+
+    const now = new Date();
+    const recentlySynced =
+      payment.raw_payload &&
+      now.getTime() - payment.updated_at.getTime() <
+        OrderService.CHECKOUT_SESSION_SYNC_WINDOW_MS;
+    if (recentlySynced) {
+      return;
+    }
+
+    const session = await this.stripe.checkout.sessions.retrieve(sessionId);
+
+    if (
+      session.status === 'complete' &&
+      isEnumEqual('paid', session.payment_status)
+    ) {
+      await this._onSessionCompleted(session);
+      return;
+    }
+
+    if (session.status === 'expired') {
+      await this._onSessionExpired(session);
+      return;
+    }
+
+    await this.prisma.payments.update({
+      where: { id: payment.id },
+      data: {
+        raw_payload: session as object,
+        updated_at: now,
+      },
+    });
+  }
+
+  private async getOrderByUuidOrThrow(
+    userId: bigint,
+    uuid: string,
+    locale: string,
+  ) {
+    const order = await this.getOrderByUuid(userId, uuid, locale);
     if (!order) {
       throw new AppException({ code: AppCode.NOT_FOUND });
     }
@@ -668,6 +798,7 @@ export class OrderService implements OnModuleInit {
   private async toOrderResponses(
     orders: NonNullable<OrderWithRelations>[],
     userId: bigint,
+    locale: string,
   ): Promise<OrderResponse[]> {
     const promptIds = orders
       .flatMap((order) => order.order_items)
@@ -684,6 +815,7 @@ export class OrderService implements OnModuleInit {
     const promptResponses = await this.promptService.promptsToResponses(
       prompts,
       userId,
+      locale,
     );
     const promptResponseMap = new Map(
       prompts.map((prompt, index) => [prompt.id, promptResponses[index]]),

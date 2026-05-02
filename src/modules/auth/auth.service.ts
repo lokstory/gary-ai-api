@@ -126,6 +126,12 @@ export class AuthService {
     });
   }
 
+  private throwUserNotExists(): never {
+    throw new AppException({
+      code: AppCode.USER_NOT_EXISTS,
+    });
+  }
+
   private async assertOtpRateLimit(purpose: OtpPurpose, email: string) {
     const config = await this.getOtpRateLimitConfig();
     const cooldownKey = `auth:otp:rate-limit:${purpose}:${email}:cooldown`;
@@ -315,7 +321,7 @@ export class AuthService {
       throw new AppException({ code: AppCode.USER_REGISTERED_WITH_GOOGLE });
     }
     if (!emailUser) {
-      throw new AppException({ code: AppCode.NOT_FOUND });
+      this.throwUserNotExists();
     }
 
     await this.assertOtpRateLimit('forgot-password', email);
@@ -337,7 +343,7 @@ export class AuthService {
       throw new AppException({ code: AppCode.USER_REGISTERED_WITH_GOOGLE });
     }
     if (!emailUser) {
-      throw new AppException({ code: AppCode.NOT_FOUND });
+      this.throwUserNotExists();
     }
 
     const payload = (await this.redisService.getJson(
@@ -372,7 +378,7 @@ export class AuthService {
       throw new AppException({ code: AppCode.USER_REGISTERED_WITH_GOOGLE });
     }
     if (!emailUser) {
-      throw new AppException({ code: AppCode.NOT_FOUND });
+      this.throwUserNotExists();
     }
 
     const passwordHash = await this.usersService.hashPassword(newPassword);

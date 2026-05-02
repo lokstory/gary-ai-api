@@ -11,6 +11,7 @@ import {
   ApiEmptyRestResponse,
   ApiRestArrayResponse,
 } from '../../components/api-response.decorator';
+import { Locale } from '../../common/locale.decorator';
 import { UserId } from '../../components/user-id.decorator';
 import { UUIDValidationPipe } from '../../components/uuid-validation.pipe';
 import { AppCode } from '../../models/app.code';
@@ -32,8 +33,8 @@ export class CartController {
   @ApiOperation({ summary: 'Get cart items' })
   @ApiRestArrayResponse(CartItemResponse)
   @Get()
-  async getCartItems(@UserId() userId: bigint) {
-    const items = await this.cartService.getCartItems(userId);
+  async getCartItems(@UserId() userId: bigint, @Locale() locale: string) {
+    const items = await this.cartService.getCartItems(userId, locale);
     return RestResponse.success(items);
   }
 

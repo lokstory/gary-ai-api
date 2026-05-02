@@ -348,6 +348,14 @@ export class OrderResponse {
   items: OrderLineItemResponse[];
 }
 
+export class CheckoutSessionOrderRequest {
+  @ApiProperty({ example: 'cs_test_xxx' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(512)
+  session_id: string;
+}
+
 export class UpdateUserInfoRequest {
   @ApiPropertyOptional({
     description: 'Nickname',

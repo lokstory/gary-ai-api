@@ -1,0 +1,1 @@
+export const KLING_TEXT_TO_VIDEO_TASK_TYPE = 'TEXT_TO_VIDEO';

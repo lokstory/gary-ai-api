@@ -11,7 +11,7 @@ export class CartService {
     private readonly promptsService: PromptService,
   ) {}
 
-  async getCartItems(userId: bigint) {
+  async getCartItems(userId: bigint, locale: string) {
     const items = await this.prisma.cart_items.findMany({
       where: { user_id: userId },
       orderBy: { created_at: 'desc' },
@@ -32,6 +32,7 @@ export class CartService {
     const promptResponses = await this.promptsService.promptsToResponses(
       prompts,
       userId,
+      locale,
     );
     const promptResponseMap = new Map(
       prompts.map((p, i) => [p.id, promptResponses[i]]),

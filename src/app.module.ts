@@ -17,6 +17,7 @@ import { LabelModule } from './modules/label/label.module';
 import { CategoryModule } from './modules/category/category.module';
 import { LocaleMiddleware } from './common/locale.middleware';
 import { WebModule } from './modules/web/web.module';
+import { KlingModule } from './modules/kling/kling.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { WebModule } from './modules/web/web.module';
     AdminModule,
     LabelModule,
     CategoryModule,
+    KlingModule,
   ],
   controllers: [AppController, TestController],
   providers: [AppService],
