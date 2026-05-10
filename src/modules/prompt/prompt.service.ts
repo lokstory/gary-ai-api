@@ -36,6 +36,7 @@ type PromptFileItem = {
   file_type: string;
   position: number;
   url: string;
+  thumbnail_id: bigint | null;
   thumbnail_url: string | null;
   created_at: Date | null;
 };
@@ -561,6 +562,7 @@ export class PromptService {
 
     const ids = items.map((i) => i.id);
     const files = await this.filesService.listFilesByRefIds('prompts', ids);
+    const thumbnailIdByParentId = new Map<bigint, bigint>();
     const thumbnailByParentId = new Map<bigint, string>();
 
     files.forEach((file) => {
@@ -569,6 +571,7 @@ export class PromptService {
         file.parent_id
       ) {
         if (!thumbnailByParentId.has(file.parent_id)) {
+          thumbnailIdByParentId.set(file.parent_id, file.id);
           thumbnailByParentId.set(
             file.parent_id,
             this.filesService.getFileUrl(file),
@@ -587,6 +590,7 @@ export class PromptService {
         file_type: file.file_type,
         position: file.position,
         url: this.filesService.getFileUrl(file),
+        thumbnail_id: thumbnailIdByParentId.get(file.id) ?? null,
         thumbnail_url: thumbnailByParentId.get(file.id) ?? null,
         created_at: file.created_at ?? null,
       });
@@ -865,6 +869,7 @@ export class PromptService {
   private toCmsPromptFileResponse(file: PromptFileItem): CmsPromptFileResponse {
     return {
       id: file.id.toString(),
+      thumbnail_id: file.thumbnail_id?.toString() ?? null,
       ...this.toPromptFileResponse(file),
     };
   }

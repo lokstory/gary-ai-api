@@ -1,0 +1,515 @@
+openapi: 3.0.0
+info:
+  title: Kling AI - Omni-Video API
+  version: v1
+  base_url: https://api-singapore.klingai.com
+  description: >
+    Kling AI Omni-Video API，透過 Prompt 結合圖片、影片、元素等多媒體內容，
+    實現圖像/元素參考、影片轉換（Transformation/Inpainting）、影片參考續拍、
+    首尾幀控制、多鏡頭生成、文字轉影片等多種能力。
+    所有請求需在 Header 帶入 Bearer Token 進行認證。
+    資源引用格式：<<<image_1>>>、<<<element_1>>>、<<<video_1>>> 用於 Prompt 中引用對應資源。
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    TaskStatus:
+      type: string
+      enum: [submitted, processing, succeed, failed]
+      description: 任務狀態
+
+    VideoResult:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 生成影片的全域唯一 ID
+        url:
+          type: string
+          description: 影片下載 URL（防盜鏈格式，30 天後自動清除，請及時儲存）
+        watermark_url:
+          type: string
+          description: 含浮水印的影片下載 URL（防盜鏈格式）
+        duration:
+          type: string
+          description: 影片總時長，單位：秒
+
+    TaskData:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: 系統生成的任務 ID
+        task_status:
+          $ref: "#/components/schemas/TaskStatus"
+        task_status_msg:
+          type: string
+          description: 任務狀態說明，失敗時顯示失敗原因（如觸發內容風控等）
+        task_info:
+          type: object
+          properties:
+            external_task_id:
+              type: string
+              description: 使用者自訂任務 ID
+        task_result:
+          type: object
+          properties:
+            videos:
+              type: array
+              items:
+                $ref: "#/components/schemas/VideoResult"
+        watermark_info:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+        final_unit_deduction:
+          type: string
+          description: 本次任務扣除的計費單位
+        created_at:
+          type: integer
+          format: int64
+          description: 任務建立時間（Unix 時間戳，毫秒）
+        updated_at:
+          type: integer
+          format: int64
+          description: 任務最後更新時間（Unix 時間戳，毫秒）
+
+    ImageListItem:
+      type: object
+      required: [image_url]
+      description: >
+        參考圖片項目。可作為角色/場景/風格參考，或作為首幀/尾幀使用。
+        若作為首幀/尾幀，需指定 type；若僅作為參考，不配置 type。
+        不支援「僅有尾幀」，若有尾幀則必須同時有首幀。
+        使用首幀/首尾幀時，不可同時使用影片編輯功能。
+      properties:
+        image_url:
+          type: string
+          description: >
+            圖片 URL 或 Base64 字串（不可為空）。
+            格式：.jpg / .jpeg / .png，大小 ≤10MB，
+            最小邊長 300px，寬高比 1:2.5 ~ 2.5:1。
+        type:
+          type: string
+          enum: [first_frame, end_frame]
+          description: >
+            幀類型，僅在作為首/尾幀時填寫：
+            first_frame = 首幀（起始畫面）；
+            end_frame = 尾幀（結束畫面）。
+            一般參考圖片不填此欄位。
+
+    ElementListItem:
+      type: object
+      required: [element_id]
+      properties:
+        element_id:
+          type: integer
+          format: int64
+          description: 元素庫中的元素 ID
+
+    VideoListItem:
+      type: object
+      required: [video_url]
+      description: >
+        參考影片項目。
+        refer_type=base：作為待編輯的基礎影片（Transformation/影片編輯）；
+        refer_type=feature：作為特徵參考影片（風格/鏡頭動作參考，或生成前後鏡）。
+        有參考影片時，sound 只能設為 off。
+      properties:
+        video_url:
+          type: string
+          description: >
+            影片 URL（不可為空）。
+            格式：MP4 / MOV，時長 ≥3 秒，
+            解析度 720px~2160px，幀率 24~60fps（輸出固定 24fps），
+            大小 ≤200MB，最多 1 個影片。
+        refer_type:
+          type: string
+          default: base
+          enum: [feature, base]
+          description: >
+            參考類型：
+            base = 待編輯影片（Inpainting/Outpainting/換元素/換背景/換風格等）；
+            feature = 特徵參考（參考影片風格、鏡頭動作，或生成前後鏡）。
+        keep_original_sound:
+          type: string
+          enum: [yes, no]
+          description: 是否保留原始音效（yes=保留，no=丟棄），base 與 feature 類型皆適用。
+
+    MultiPromptItem:
+      type: object
+      required: [index, prompt, duration]
+      properties:
+        index:
+          type: integer
+          description: 鏡頭序號（從 1 開始）
+        prompt:
+          type: string
+          maxLength: 512
+          description: 該鏡頭的提示詞（可包含正向與負向描述）
+        duration:
+          type: string
+          description: 該鏡頭時長（秒），不可超過總時長，最少 1 秒
+
+    CreateTaskRequest:
+      type: object
+      description: >
+        建立 Omni-Video 任務的請求體。
+        核心能力場景：
+        1. 文字轉影片：僅需 prompt + mode + aspect_ratio + duration。
+        2. 圖像/元素參考：提供 image_list 和/或 element_list，prompt 中以 <<<image_N>>> / <<<element_N>>> 引用。
+        3. 首尾幀控制：image_list 中設定 first_frame / end_frame，不可同時使用影片編輯。
+        4. 影片轉換（Transformation）：video_list 中 refer_type=base，prompt 描述編輯需求。
+        5. 影片參考（Video Reference）：video_list 中 refer_type=feature，參考風格或生成前後鏡。
+        6. 多鏡頭模式：multi_shot=true + shot_type + multi_prompt。
+        重要限制：有 video_list 且 refer_type=base 時，duration 無效（輸出時長 = 輸入影片時長）。
+        aspect_ratio 不支援影片編輯（base）和圖片轉影片（非首尾幀）場景。
+      properties:
+        model_name:
+          type: string
+          default: kling-video-o1
+          enum:
+            - kling-video-o1
+            - kling-v3-omni
+          description: 模型名稱
+        multi_shot:
+          type: boolean
+          default: false
+          description: >
+            是否啟用多鏡頭模式。
+            true：prompt 失效，需搭配 shot_type 與 multi_prompt；
+            false：shot_type 與 multi_prompt 失效。
+        shot_type:
+          type: string
+          enum: [customize, intelligence]
+          description: >
+            分鏡方式，multi_shot=true 時必填。
+            customize = 自訂分鏡（需填 multi_prompt）；
+            intelligence = 智能分鏡（prompt 不可為空）。
+        prompt:
+          type: string
+          maxLength: 2500
+          description: >
+            文字提示詞（可包含正向與負向描述）。
+            multi_shot=false 或 shot_type=intelligence 時不可為空。
+            支援模板化以滿足不同場景需求。
+            引用資源格式：
+              <<<image_1>>> 對應 image_list[0]
+              <<<image_2>>> 對應 image_list[1]
+              <<<element_1>>> 對應 element_list[0]
+              <<<video_1>>> 對應 video_list[0]
+            範例：Make the person in <<<image_1>>> wave to the camera
+        multi_prompt:
+          type: array
+          maxItems: 6
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/MultiPromptItem"
+          description: >
+            多鏡頭提示詞列表。multi_shot=true 且 shot_type=customize 時必填。
+            最多 6 個鏡頭，最少 1 個。
+            所有鏡頭 duration 之和必須等於頂層 duration。
+        image_list:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImageListItem"
+          description: >
+            參考圖片列表（角色/場景/風格參考，或首尾幀）。
+            圖片數量限制（視情況而定）：
+            - 無參考影片 + 僅 Multi-Image 元素：圖片數 + Multi-Image 元素數 ≤ 7
+            - 無參考影片 + 有 Video Character 元素：圖片數 + Multi-Image 元素數 ≤ 4
+            - 有參考影片 + 僅 Multi-Image 元素：圖片數 + Multi-Image 元素數 ≤ 4
+            - kling-video-o1 模型：array 超過 2 張時不支援設定首尾幀
+        element_list:
+          type: array
+          items:
+            $ref: "#/components/schemas/ElementListItem"
+          description: >
+            參考元素列表（來自元素庫）。
+            元素分為 Video Character Elements（影片角色元素）和 Multi-Image Elements（多圖元素），用途不同。
+            數量限制（視情況而定）：
+            - 使用首尾幀時（kling-v3-omni）：最多 3 個元素
+            - 使用首尾幀時（kling-video-o1）：不支援元素
+            - 無參考影片 + 僅 Multi-Image 元素：圖片數 + Multi-Image 元素數 ≤ 7
+            - 無參考影片 + 僅 Video Character 元素：最多 3 個
+            - 無參考影片 + 同時有兩種元素：Video Character ≤ 3，圖片數 + Multi-Image 元素數 ≤ 4
+            - 有參考影片 + 僅 Multi-Image 元素：圖片數 + Multi-Image 元素數 ≤ 4
+            - 有參考影片 + 僅 Video Character 元素：最多 1 個
+            - 有參考影片時：不支援 Video Character 元素
+        video_list:
+          type: array
+          maxItems: 1
+          items:
+            $ref: "#/components/schemas/VideoListItem"
+          description: >
+            參考影片列表，最多 1 個。
+            有參考影片時，sound 只能設為 off。
+            refer_type=base（影片編輯）時，duration 無效，輸出時長 = 輸入影片時長，計費以輸入時長四捨五入計算。
+        sound:
+          type: string
+          default: "off"
+          enum: ["on", "off"]
+          description: >
+            是否同步生成音效。
+            有參考影片（video_list 不為空）時，只能設為 off。
+        mode:
+          type: string
+          default: pro
+          enum: [std, pro, "4k"]
+          description: >
+            影片生成模式：
+            std = 標準模式（720P，低成本）；
+            pro = 專業模式（1080P，高品質）；
+            4k = 4K 模式（最高品質）。
+        aspect_ratio:
+          type: string
+          enum: ["16:9", "9:16", "1:1"]
+          description: >
+            輸出影片寬高比（width:height）。
+            以下場景必填：純文字轉影片、圖像/元素參考（非首尾幀）、影片參考（feature）。
+            以下場景不支援：影片編輯（base）、圖片轉影片（非首尾幀）。
+        duration:
+          type: string
+          default: "5"
+          enum:
+            [
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9",
+              "10",
+              "11",
+              "12",
+              "13",
+              "14",
+              "15",
+            ]
+          description: >
+            影片時長（秒）。
+            文字轉影片 / 圖片轉影片（非首尾幀）：可選 3~10 秒。
+            有參考影片且 refer_type=base（影片編輯）時：此參數無效，輸出時長等於輸入影片時長。
+            其他情況（無影片但有圖片+主體，或影片 refer_type=feature）：可選 3~10 秒。
+        watermark_info:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+          description: 是否同步生成含浮水印的影片。不支援自訂浮水印。
+        callback_url:
+          type: string
+          format: uri
+          description: 任務狀態變更時的回調通知 URL，詳見 Callback Protocol。
+        external_task_id:
+          type: string
+          description: 使用者自訂任務 ID，同帳號下須唯一，不覆蓋系統 task_id，可用於查詢。
+
+paths:
+  /v1/videos/omni-video:
+    post:
+      summary: 建立 Omni-Video 任務
+      operationId: createOmniVideoTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+            examples:
+              文字轉影片:
+                value:
+                  model_name: kling-video-o1
+                  prompt: "The person in the video is dancing."
+                  mode: pro
+                  aspect_ratio: "1:1"
+                  duration: "7"
+              圖像元素參考:
+                value:
+                  model_name: kling-video-o1
+                  prompt: "<<<image_1>>> strolling through the streets of Tokyo."
+                  image_list:
+                    - image_url: "https://example.com/person.jpg"
+                  mode: pro
+                  aspect_ratio: "1:1"
+                  duration: "7"
+              首尾幀控制:
+                value:
+                  model_name: kling-video-o1
+                  prompt: "The person in the video is dancing."
+                  image_list:
+                    - image_url: "https://example.com/start.jpg"
+                      type: first_frame
+                    - image_url: "https://example.com/end.jpg"
+                      type: end_frame
+                  mode: pro
+              影片轉換_Transformation:
+                value:
+                  model_name: kling-video-o1
+                  prompt: "Put the crown from <<<image_1>>> on the girl in blue from <<<video_1>>>."
+                  image_list:
+                    - image_url: "https://example.com/crown.jpg"
+                  video_list:
+                    - video_url: "https://example.com/input.mp4"
+                      refer_type: base
+                      keep_original_sound: "yes"
+                  mode: pro
+              影片參考_續拍:
+                value:
+                  model_name: kling-video-o1
+                  prompt: "Based on <<<video_1>>>, generate the next shot."
+                  video_list:
+                    - video_url: "https://example.com/input.mp4"
+                      refer_type: feature
+                      keep_original_sound: "yes"
+                  mode: pro
+      responses:
+        "200":
+          description: 任務建立成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    description: 錯誤碼（0 = 成功）
+                  message:
+                    type: string
+                  request_id:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      task_id:
+                        type: string
+                      task_info:
+                        type: object
+                        properties:
+                          external_task_id:
+                            type: string
+                      task_status:
+                        $ref: "#/components/schemas/TaskStatus"
+                      created_at:
+                        type: integer
+                        format: int64
+                      updated_at:
+                        type: integer
+                        format: int64
+
+    get:
+      summary: 查詢 Omni-Video 任務列表
+      operationId: listOmniVideoTasks
+      parameters:
+        - name: pageNum
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+            maximum: 1000
+          description: 頁碼
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 500
+          description: 每頁筆數
+      responses:
+        "200":
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  message:
+                    type: string
+                  request_id:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TaskData"
+
+  /v1/videos/omni-video/{id}:
+    get:
+      summary: 查詢單一 Omni-Video 任務狀態與結果
+      operationId: getOmniVideoTask
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 填入 task_id 或 external_task_id（二擇一）
+      responses:
+        "200":
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  message:
+                    type: string
+                  request_id:
+                    type: string
+                  data:
+                    $ref: "#/components/schemas/TaskData"
+
+constraints:
+  影片時長規則:
+    - 文字轉影片 / 圖片轉影片（非首尾幀）：duration 可選 3~10 秒
+    - 影片編輯（refer_type=base）：duration 無效，輸出時長 = 輸入影片時長，計費以輸入時長四捨五入
+    - 其他情況（無影片但有圖片+主體，或 refer_type=feature）：duration 可選 3~10 秒
+
+  aspect_ratio 規則:
+    - 必填場景：純文字轉影片、圖像/元素參考（非首尾幀）、影片參考（feature）、生成前後鏡
+    - 不支援場景：影片編輯（base）、圖片轉影片（非首尾幀）
+
+  首尾幀規則:
+    - 不支援「僅有尾幀」，有尾幀則必須同時有首幀
+    - 使用首尾幀時不可同時使用影片編輯功能
+    - kling-video-o1：image_list 超過 2 張時不支援設定首尾幀
+    - kling-v3-omni 使用首尾幀時：element_list 最多 3 個
+    - kling-video-o1 使用首尾幀時：不支援 element_list
+
+  影片限制:
+    - 最多 1 個參考影片
+    - 格式：MP4 / MOV，時長 ≥3 秒，解析度 720~2160px，幀率 24~60fps，大小 ≤200MB
+    - 有參考影片時 sound 只能設為 off
+    - 有參考影片時不支援 Video Character 元素（refer_type=feature 時）
+    - 有參考影片時 Video Character 元素最多 1 個（refer_type=base 時）
+
+  元素與圖片數量規則:
+    - 無參考影片 + 僅 Multi-Image 元素：圖片數 + Multi-Image 元素數 ≤ 7
+    - 無參考影片 + 有 Video Character 元素：圖片數 + Multi-Image 元素數 ≤ 4
+    - 無參考影片 + 僅 Video Character 元素：最多 3 個
+    - 無參考影片 + 兩種元素：Video Character ≤ 3，圖片數 + Multi-Image 元素數 ≤ 4
+    - 有參考影片 + 僅 Multi-Image 元素：圖片數 + Multi-Image 元素數 ≤ 4
+    - 有參考影片 + 僅 Video Character 元素：最多 1 個
+
+  多鏡頭規則:
+    - multi_prompt 所有鏡頭 duration 之和必須等於頂層 duration
+    - 最多 6 個鏡頭，最少 1 個，每段提示詞不超過 512 字元
+
+  其他:
+    - 影片 URL 有效期限為 30 天，請及時下載儲存
+    - 不同模型版本對各參數的支援範圍不同，請參考官方 Capability Map
+    - 擴展影片可透過 video_list（refer_type=feature）+ prompt 指示「生成下一鏡」實現

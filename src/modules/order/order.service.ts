@@ -2,7 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '../../../generated/prisma/client';
-import { createHash } from 'crypto';
+import { QueryMode } from '../../../generated/prisma/internal/prismaNamespace';
+import { createHash, randomBytes } from 'crypto';
 import {
   OrderItemType,
   OrderStatus,
@@ -15,6 +16,7 @@ import { AppCode } from '../../models/app.code';
 import { PromptService } from '../prompt/prompt.service';
 import { OrderResponse, PageQuery } from '../../models/user-api.io';
 import { isEnumEqual } from '../../utils/enum.util';
+import { CmsOrderResponse } from '../../models/admin-api.io';
 
 type CheckoutLineItem = {
   item_type: string;
@@ -27,24 +29,54 @@ type CheckoutLineItem = {
 
 type CheckoutDbClient = PrismaService | Prisma.TransactionClient;
 
-type PendingCheckoutRow = {
+type StripePaymentRecord = {
+  id: bigint;
   order_id: bigint;
-  order_uuid: string;
-  payment_id: bigint;
-  checkout_url: string | null;
-  expires_at: Date | null;
-  provider_session_id: string | null;
+  status: string;
+  updated_at: Date;
+  raw_payload: unknown;
+  orders: {
+    user_id: bigint;
+    status: string;
+  };
+};
+
+type PendingOrderRecord = {
+  id: bigint;
+  uuid: string;
+  display_id: string;
+  user_id: bigint;
+  status: string;
+  amount: number;
+  currency: string;
+  created_at: Date;
+  updated_at: Date;
+  fingerprint: string | null;
 };
 
 type OrderWithRelations = Awaited<
   ReturnType<OrderService['findOrderRecordByUuid']>
 >;
 
+type AdminOrderWithRelations = Awaited<
+  ReturnType<OrderService['findAdminOrderRecords']>
+>[number];
+
+type AdminListOrdersOptions = {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  orderUuid?: string;
+  displayId?: string;
+  status?: OrderStatus;
+  userUuid?: string;
+};
+
 @Injectable()
 export class OrderService implements OnModuleInit {
   private readonly logger = new Logger(OrderService.name);
-  private static readonly REUSE_CHECKOUT_WINDOW_MS = 60 * 60 * 1000;
   private static readonly CHECKOUT_SESSION_SYNC_WINDOW_MS = 15 * 1000;
+  private static readonly DISPLAY_ID_CREATE_ATTEMPTS = 5;
   private stripe: Stripe;
 
   constructor(
@@ -154,32 +186,12 @@ export class OrderService implements OnModuleInit {
     locale: string,
   ): Promise<OrderResponse> {
     const fingerprint = this.buildLineItemsFingerprint(lineItems);
-    const now = new Date();
     const totalAmount = this.calculateTotalAmount(lineItems);
 
     const prepared = await this.prisma.$transaction(async (tx) => {
       await this.acquireCheckoutLock(tx, userId, fingerprint);
       await this.ensurePromptsNotPurchased(tx, userId, lineItems);
 
-      const existingCheckout = await this.findReusableCheckout(
-        tx,
-        userId,
-        fingerprint,
-        now,
-      );
-      if (existingCheckout) {
-        return {
-          type: 'reuse' as const,
-          orderUuid: existingCheckout.order_uuid,
-        };
-      }
-
-      const staleSessionIds = await this.cancelPendingCheckouts(
-        tx,
-        userId,
-        fingerprint,
-        now,
-      );
       const order = await this.createPendingOrder(
         tx,
         userId,
@@ -189,17 +201,9 @@ export class OrderService implements OnModuleInit {
       );
 
       return {
-        type: 'create' as const,
         order,
-        staleSessionIds,
       };
     });
-
-    if (prepared.type === 'reuse') {
-      return this.getOrderByUuidOrThrow(userId, prepared.orderUuid, locale);
-    }
-
-    await this.expireStripeSessions(prepared.staleSessionIds);
 
     const createdOrder = await this.createStripeCheckout(
       prepared.order,
@@ -275,95 +279,8 @@ export class OrderService implements OnModuleInit {
     }
   }
 
-  private async findReusableCheckout(
-    db: CheckoutDbClient,
-    userId: bigint,
-    fingerprint: string,
-    now: Date,
-  ): Promise<PendingCheckoutRow | null> {
-    const pendingCheckouts = await this.findPendingCheckoutsByFingerprint(
-      db,
-      userId,
-      fingerprint,
-    );
-
-    for (const checkout of pendingCheckouts) {
-      if (!checkout.checkout_url || !checkout.expires_at) {
-        continue;
-      }
-
-      if (!this.hasReusableCheckoutWindow(checkout.expires_at, now)) {
-        continue;
-      }
-
-      return {
-        ...checkout,
-      };
-    }
-
-    return null;
-  }
-
-  private hasReusableCheckoutWindow(expiresAt: Date, now: Date) {
-    return (
-      expiresAt.getTime() - now.getTime() >=
-      OrderService.REUSE_CHECKOUT_WINDOW_MS
-    );
-  }
-
   private isPaymentExpired(expiresAt: Date | null, now: Date) {
     return !expiresAt || expiresAt.getTime() <= now.getTime();
-  }
-
-  private async cancelPendingCheckouts(
-    tx: Prisma.TransactionClient,
-    userId: bigint,
-    fingerprint: string,
-    now: Date,
-  ) {
-    const stalePayments = (
-      await this.findPendingCheckoutsByFingerprint(tx, userId, fingerprint)
-    )
-      .filter(
-        (checkout) =>
-          checkout.expires_at &&
-          !this.hasReusableCheckoutWindow(checkout.expires_at, now),
-      )
-      .map((checkout) => ({
-        paymentId: checkout.payment_id,
-        orderId: checkout.order_id,
-        sessionId: checkout.provider_session_id,
-      }));
-
-    if (!stalePayments.length) {
-      return [];
-    }
-
-    await tx.payments.updateMany({
-      where: { id: { in: stalePayments.map((item) => item.paymentId) } },
-      data: { status: PaymentStatus.CANCELLED },
-    });
-
-    await tx.orders.updateMany({
-      where: { id: { in: stalePayments.map((item) => item.orderId) } },
-      data: { status: OrderStatus.CANCELLED },
-    });
-
-    return stalePayments
-      .map((item) => item.sessionId)
-      .filter((item): item is string => Boolean(item));
-  }
-
-  private async expireStripeSessions(sessionIds: string[]) {
-    for (const sessionId of sessionIds) {
-      try {
-        await this.stripe.checkout.sessions.expire(sessionId);
-      } catch (error) {
-        this.logger.warn(
-          `Failed to expire Stripe session ${sessionId}: ${error.message}`,
-        );
-      }
-    }
   }
 
   private async createPendingOrder(
@@ -373,14 +290,11 @@ export class OrderService implements OnModuleInit {
     lineItems: CheckoutLineItem[],
     totalAmount: number,
   ) {
-    const order = await tx.orders.create({
-      data: {
-        user_id: userId,
-        status: OrderStatus.PENDING,
-        amount: totalAmount,
-        currency: 'TWD',
-      },
-    });
+    const order = await this.createOrderRecordWithDisplayId(
+      tx,
+      userId,
+      totalAmount,
+    );
 
     await tx.$executeRaw`
       UPDATE orders
@@ -402,39 +316,35 @@ export class OrderService implements OnModuleInit {
     return order;
   }
 
-  private async findPendingCheckoutsByFingerprint(
-    db: CheckoutDbClient,
+  private async createOrderRecordWithDisplayId(
+    tx: Prisma.TransactionClient,
     userId: bigint,
-    fingerprint: string,
-  ): Promise<PendingCheckoutRow[]> {
-    return db.$queryRaw<PendingCheckoutRow[]>`
-      SELECT
-        o.id AS order_id,
-        o.uuid AS order_uuid,
-        p.id AS payment_id,
-        p.checkout_url,
-        p.expires_at,
-        p.provider_session_id
-      FROM orders o
-      JOIN LATERAL (
-        SELECT
-          id,
-          checkout_url,
-          expires_at,
-          provider_session_id
-        FROM payments
-        WHERE order_id = o.id
-          AND provider = ${PaymentProvider.STRIPE}
-          AND status = ${PaymentStatus.PENDING}
-        ORDER BY created_at DESC
-        LIMIT 1
-      ) p ON true
-      WHERE o.user_id = ${userId}
-        AND o.status = ${OrderStatus.PENDING}
-        AND o.fingerprint = ${fingerprint}
-      ORDER BY o.created_at DESC
-      LIMIT 10
-    `;
+    totalAmount: number,
+  ) {
+    for (
+      let attempt = 1;
+      attempt <= OrderService.DISPLAY_ID_CREATE_ATTEMPTS;
+      attempt += 1
+    ) {
+      const [order] = await tx.$queryRaw<PendingOrderRecord[]>`
+        INSERT INTO orders (display_id, user_id, status, amount, currency)
+        VALUES (
+          ${this.generateOrderDisplayId()},
+          ${userId},
+          ${OrderStatus.PENDING},
+          ${totalAmount},
+          'TWD'
+        )
+        ON CONFLICT (display_id) DO NOTHING
+        RETURNING id, uuid, display_id, user_id, status, amount, currency, created_at, updated_at, fingerprint
+      `;
+
+      if (order) {
+        return order;
+      }
+    }
+
+    throw new Error('Failed to generate a unique order display_id');
   }
 
   private async createStripeCheckout(
@@ -461,6 +371,12 @@ export class OrderService implements OnModuleInit {
       success_url: successUrl,
       cancel_url: cancelUrl,
       client_reference_id: order.uuid,
+      payment_intent_data: {
+        metadata: {
+          order_id: order.id.toString(),
+          order_uuid: order.uuid,
+        },
+      },
     });
 
     const payment = await this.prisma.payments.create({
@@ -514,17 +430,28 @@ export class OrderService implements OnModuleInit {
 
     switch (event.type) {
       case 'checkout.session.completed': {
-        await this._onSessionCompleted(event.data.object);
+        await this._onSessionCompleted(event.data.object, event.type);
         break;
       }
       case 'checkout.session.expired': {
-        await this._onSessionExpired(event.data.object);
+        await this._onSessionExpired(event.data.object, event.type);
+        break;
+      }
+      case 'payment_intent.succeeded': {
+        await this._onPaymentIntentSucceeded(event.data.object, event.type);
+        break;
+      }
+      case 'payment_intent.payment_failed': {
+        await this._onPaymentIntentFailed(event.data.object, event.type);
         break;
       }
     }
   }
 
-  private async _onSessionCompleted(session: Stripe.Checkout.Session) {
+  private async _onSessionCompleted(
+    session: Stripe.Checkout.Session,
+    eventType = 'checkout.session.completed',
+  ) {
     const payment = await this.prisma.payments.findFirst({
       where: { provider_session_id: session.id },
       include: { orders: true },
@@ -536,7 +463,10 @@ export class OrderService implements OnModuleInit {
       return;
     }
 
-    if (isEnumEqual(PaymentStatus.PAID, payment.status)) {
+    if (
+      isEnumEqual(PaymentStatus.PAID, payment.status) &&
+      isEnumEqual(OrderStatus.PAID, payment.orders.status)
+    ) {
       this.logger.warn(
         `_onSessionCompleted: already processed, skipping (payment: ${payment.id})`,
       );
@@ -560,7 +490,18 @@ export class OrderService implements OnModuleInit {
     await this.prisma.$transaction([
       this.prisma.payments.update({
         where: { id: payment.id },
-        data: { status: PaymentStatus.PAID, raw_payload: session as object },
+        data: {
+          status: PaymentStatus.PAID,
+          provider_payment_id:
+            typeof session.payment_intent === 'string'
+              ? session.payment_intent
+              : payment.provider_payment_id,
+          raw_payload: this.buildPaymentRawPayload(
+            payment.raw_payload,
+            eventType,
+            session,
+          ),
+        },
       }),
       this.prisma.orders.update({
         where: { id: payment.order_id },
@@ -594,9 +535,13 @@ export class OrderService implements OnModuleInit {
     );
   }
 
-  private async _onSessionExpired(session: Stripe.Checkout.Session) {
+  private async _onSessionExpired(
+    session: Stripe.Checkout.Session,
+    eventType = 'checkout.session.expired',
+  ) {
     const payment = await this.prisma.payments.findFirst({
       where: { provider_session_id: session.id },
+      include: { orders: true },
     });
     if (!payment) {
       this.logger.warn(
@@ -605,9 +550,9 @@ export class OrderService implements OnModuleInit {
       return;
     }
 
-    if (isEnumEqual(PaymentStatus.EXPIRED, payment.status)) {
+    if (isEnumEqual(PaymentStatus.PAID, payment.status)) {
       this.logger.warn(
-        `_onSessionExpired: already processed, skipping (payment: ${payment.id})`,
+        `_onSessionExpired: payment already PAID, skipping (payment: ${payment.id})`,
       );
       return;
     }
@@ -615,17 +560,181 @@ export class OrderService implements OnModuleInit {
     await this.prisma.$transaction([
       this.prisma.payments.update({
         where: { id: payment.id },
-        data: { status: PaymentStatus.EXPIRED, raw_payload: session as object },
+        data: {
+          status: PaymentStatus.EXPIRED,
+          raw_payload: this.buildPaymentRawPayload(
+            payment.raw_payload,
+            eventType,
+            session,
+          ),
+        },
       }),
       this.prisma.orders.update({
         where: { id: payment.order_id },
-        data: { status: OrderStatus.CANCELLED },
+        data: { status: OrderStatus.FAILED },
       }),
     ]);
 
     this.logger.log(
-      `Order ${payment.order_id} cancelled due to session expiry (session: ${session.id})`,
+      `Order ${payment.order_id} marked as FAILED due to session expiry (session: ${session.id})`,
     );
+  }
+
+  private async _onPaymentIntentSucceeded(
+    paymentIntent: Stripe.PaymentIntent,
+    eventType = 'payment_intent.succeeded',
+  ) {
+    const payment = await this.findPaymentByPaymentIntent(paymentIntent);
+    if (!payment) {
+      this.logger.warn(
+        `_onPaymentIntentSucceeded: payment not found for intent ${paymentIntent.id}`,
+      );
+      return;
+    }
+
+    if (
+      isEnumEqual(PaymentStatus.PAID, payment.status) &&
+      isEnumEqual(OrderStatus.PAID, payment.orders.status)
+    ) {
+      this.logger.warn(
+        `_onPaymentIntentSucceeded: already processed, skipping (payment: ${payment.id})`,
+      );
+      return;
+    }
+
+    await this.markPaymentPaid(payment, paymentIntent, eventType);
+  }
+
+  private async _onPaymentIntentFailed(
+    paymentIntent: Stripe.PaymentIntent,
+    eventType = 'payment_intent.payment_failed',
+  ) {
+    const payment = await this.findPaymentByPaymentIntent(paymentIntent);
+    if (!payment) {
+      this.logger.warn(
+        `_onPaymentIntentFailed: payment not found for intent ${paymentIntent.id}`,
+      );
+      return;
+    }
+
+    if (isEnumEqual(PaymentStatus.PAID, payment.status)) {
+      this.logger.warn(
+        `_onPaymentIntentFailed: payment already PAID, skipping (payment: ${payment.id})`,
+      );
+      return;
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.payments.update({
+        where: { id: payment.id },
+        data: {
+          status: PaymentStatus.FAILED,
+          provider_payment_id: paymentIntent.id,
+          raw_payload: this.buildPaymentRawPayload(
+            payment.raw_payload,
+            eventType,
+            paymentIntent,
+          ),
+        },
+      }),
+      this.prisma.orders.update({
+        where: { id: payment.order_id },
+        data: { status: OrderStatus.FAILED },
+      }),
+    ]);
+
+    this.logger.log(
+      `Order ${payment.order_id} marked as FAILED (payment intent: ${paymentIntent.id})`,
+    );
+  }
+
+  private async findPaymentByPaymentIntent(
+    paymentIntent: Stripe.PaymentIntent,
+  ): Promise<StripePaymentRecord | null> {
+    const payment = await this.prisma.payments.findFirst({
+      where: {
+        provider: PaymentProvider.STRIPE,
+        provider_payment_id: paymentIntent.id,
+      },
+      include: { orders: { select: { user_id: true, status: true } } },
+    });
+    if (payment) return payment;
+
+    const orderUuid = paymentIntent.metadata?.order_uuid;
+    if (!orderUuid) return null;
+
+    return this.prisma.payments.findFirst({
+      where: {
+        provider: PaymentProvider.STRIPE,
+        orders: { uuid: orderUuid },
+      },
+      include: { orders: { select: { user_id: true, status: true } } },
+    });
+  }
+
+  private async markPaymentPaid(
+    payment: StripePaymentRecord,
+    payload: Stripe.Checkout.Session | Stripe.PaymentIntent,
+    eventType: string,
+  ) {
+    const orderItems = await this.prisma.order_items.findMany({
+      where: { order_id: payment.order_id },
+    });
+    const promptOrderItems = orderItems.filter((item) =>
+      isEnumEqual(OrderItemType.PROMPT, item.item_type),
+    );
+    const itemsByType = orderItems.reduce<Record<string, typeof orderItems>>(
+      (acc, item) => {
+        (acc[item.item_type] ??= []).push(item);
+        return acc;
+      },
+      {},
+    );
+
+    await this.prisma.$transaction([
+      this.prisma.payments.update({
+        where: { id: payment.id },
+        data: {
+          status: PaymentStatus.PAID,
+          provider_payment_id:
+            'object' in payload && payload.object === 'payment_intent'
+              ? payload.id
+              : undefined,
+          raw_payload: this.buildPaymentRawPayload(
+            payment.raw_payload,
+            eventType,
+            payload,
+          ),
+        },
+      }),
+      this.prisma.orders.update({
+        where: { id: payment.order_id },
+        data: { status: OrderStatus.PAID },
+      }),
+      ...(promptOrderItems.length
+        ? [
+            this.prisma.user_prompts.createMany({
+              data: promptOrderItems.map((item) => ({
+                user_id: payment.orders.user_id,
+                prompt_id: item.item_id,
+                order_id: payment.order_id,
+              })),
+              skipDuplicates: true,
+            }),
+          ]
+        : []),
+      ...Object.entries(itemsByType).map(([itemType, items]) =>
+        this.prisma.cart_items.deleteMany({
+          where: {
+            user_id: payment.orders.user_id,
+            item_type: itemType,
+            item_id: { in: items.map((item) => item.item_id) },
+          },
+        }),
+      ),
+    ]);
+
+    this.logger.log(`Order ${payment.order_id} marked as PAID`);
   }
 
   async listOrders(userId: bigint, options: PageQuery, locale: string) {
@@ -634,7 +743,10 @@ export class OrderService implements OnModuleInit {
 
     const [orders, total] = await this.prisma.$transaction([
       this.prisma.orders.findMany({
-        where: { user_id: userId },
+        where: {
+          user_id: userId,
+          status: { in: [OrderStatus.PAID, OrderStatus.FAILED] },
+        },
         orderBy: { created_at: 'desc' },
         include: {
           order_items: true,
@@ -646,12 +758,165 @@ export class OrderService implements OnModuleInit {
         skip,
         take,
       }),
-      this.prisma.orders.count({ where: { user_id: userId } }),
+      this.prisma.orders.count({
+        where: {
+          user_id: userId,
+          status: { in: [OrderStatus.PAID, OrderStatus.FAILED] },
+        },
+      }),
     ]);
 
     const items = await this.toOrderResponses(orders, userId, locale);
 
     return { items, total };
+  }
+
+  async listAdminOrders({
+    page = 1,
+    pageSize = 20,
+    search,
+    orderUuid,
+    displayId,
+    status,
+    userUuid,
+  }: AdminListOrdersOptions) {
+    const where = this.buildAdminOrderWhere({
+      search,
+      orderUuid,
+      displayId,
+      status,
+      userUuid,
+    });
+    const skip = (page - 1) * pageSize;
+
+    const [orders, total] = await this.prisma.$transaction([
+      this.findAdminOrderRecords(where, skip, pageSize),
+      this.prisma.orders.count({ where }),
+    ]);
+
+    return {
+      data: orders.map((order) => this.toAdminOrderResponse(order)),
+      page,
+      pageSize,
+      total,
+    };
+  }
+
+  private buildAdminOrderWhere({
+    search,
+    orderUuid,
+    displayId,
+    status,
+    userUuid,
+  }: Omit<
+    AdminListOrdersOptions,
+    'page' | 'pageSize'
+  >): Prisma.ordersWhereInput {
+    const normalizedSearch = search?.trim();
+    const normalizedOrderUuid = orderUuid?.trim();
+    const normalizedDisplayId = displayId?.trim();
+    const normalizedUserUuid = userUuid?.trim();
+    const searchOr: Prisma.ordersWhereInput[] = [];
+
+    if (normalizedSearch) {
+      searchOr.push({
+        display_id: { contains: normalizedSearch, mode: QueryMode.insensitive },
+      });
+
+      if (this.isUuid(normalizedSearch)) {
+        searchOr.push(
+          { uuid: normalizedSearch },
+          { users: { uuid: normalizedSearch } },
+        );
+      }
+    }
+
+    return {
+      ...(normalizedOrderUuid ? { uuid: normalizedOrderUuid } : {}),
+      ...(normalizedDisplayId
+        ? {
+            display_id: {
+              contains: normalizedDisplayId,
+              mode: QueryMode.insensitive,
+            },
+          }
+        : {}),
+      ...(status ? { status } : {}),
+      ...(normalizedUserUuid ? { users: { uuid: normalizedUserUuid } } : {}),
+      ...(searchOr.length ? { OR: searchOr } : {}),
+    };
+  }
+
+  private findAdminOrderRecords(
+    where: Prisma.ordersWhereInput,
+    skip: number,
+    take: number,
+  ) {
+    return this.prisma.orders.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      include: {
+        users: {
+          select: {
+            uuid: true,
+            email: true,
+            name: true,
+          },
+        },
+        order_items: {
+          orderBy: { created_at: 'asc' },
+        },
+        payments: {
+          orderBy: { created_at: 'desc' },
+          take: 1,
+        },
+      },
+      skip,
+      take,
+    });
+  }
+
+  private toAdminOrderResponse(
+    order: AdminOrderWithRelations,
+  ): CmsOrderResponse {
+    const payment = order.payments[0] ?? null;
+
+    return {
+      id: order.id.toString(),
+      uuid: order.uuid,
+      display_id: order.display_id,
+      status: order.status,
+      amount: order.amount,
+      currency: order.currency,
+      fingerprint: order.fingerprint,
+      created_at: order.created_at,
+      updated_at: order.updated_at,
+      user: {
+        uuid: order.users.uuid,
+        email: order.users.email,
+        name: order.users.name,
+      },
+      payment: payment
+        ? {
+            provider: payment.provider,
+            status: payment.status,
+            provider_payment_id: payment.provider_payment_id,
+            provider_session_id: payment.provider_session_id,
+            checkout_url: payment.checkout_url,
+            expires_at: payment.expires_at,
+            created_at: payment.created_at,
+            updated_at: payment.updated_at,
+          }
+        : null,
+      items: order.order_items.map((item) => ({
+        item_type: item.item_type,
+        item_id: item.item_id.toString(),
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        amount: item.amount,
+        created_at: item.created_at,
+      })),
+    };
   }
 
   async getOrderByUuid(
@@ -732,7 +997,7 @@ export class OrderService implements OnModuleInit {
     },
     sessionId: string,
   ) {
-    if (!isEnumEqual(PaymentStatus.PENDING, payment.status)) {
+    if (isEnumEqual(PaymentStatus.PAID, payment.status)) {
       return;
     }
 
@@ -763,7 +1028,11 @@ export class OrderService implements OnModuleInit {
     await this.prisma.payments.update({
       where: { id: payment.id },
       data: {
-        raw_payload: session as object,
+        raw_payload: this.buildPaymentRawPayload(
+          payment.raw_payload,
+          'checkout.session.sync',
+          session,
+        ),
         updated_at: now,
       },
     });
@@ -836,6 +1105,7 @@ export class OrderService implements OnModuleInit {
 
       return {
         uuid: order.uuid,
+        display_id: order.display_id,
         status: order.status,
         amount: order.amount,
         currency: order.currency,
@@ -856,5 +1126,78 @@ export class OrderService implements OnModuleInit {
 
   async getPromptByPublicId(publicId: string) {
     return this.prisma.prompts.findFirst({ where: { uuid: publicId } });
+  }
+
+  private generateOrderDisplayId(date = new Date()) {
+    const datePart = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Taipei',
+      year: '2-digit',
+      month: '2-digit',
+      day: '2-digit',
+    })
+      .formatToParts(date)
+      .filter((part) => part.type !== 'literal')
+      .map((part) => part.value)
+      .join('');
+
+    return `ORD-${datePart}-${this.generateRandomCode(8)}`;
+  }
+
+  private generateRandomCode(length: number) {
+    const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+    return Array.from(
+      randomBytes(length),
+      (byte) => alphabet[byte % alphabet.length],
+    ).join('');
+  }
+
+  private buildPaymentRawPayload(
+    existingRawPayload: unknown,
+    eventType: string,
+    payload: Stripe.Checkout.Session | Stripe.PaymentIntent,
+  ) {
+    const existingEvents =
+      this.extractPaymentRawPayloadEvents(existingRawPayload);
+    const event = {
+      event_type: eventType,
+      received_at: new Date().toISOString(),
+      payload: payload as object,
+    };
+
+    return {
+      latest_event_type: eventType,
+      latest_payload: payload as object,
+      events: [...existingEvents, event].slice(-20),
+    };
+  }
+
+  private extractPaymentRawPayloadEvents(existingRawPayload: unknown) {
+    if (
+      existingRawPayload &&
+      typeof existingRawPayload === 'object' &&
+      'events' in existingRawPayload &&
+      Array.isArray(existingRawPayload.events)
+    ) {
+      return existingRawPayload.events;
+    }
+
+    if (existingRawPayload) {
+      return [
+        {
+          event_type: 'legacy',
+          received_at: null,
+          payload: existingRawPayload,
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  private isUuid(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    );
   }
 }

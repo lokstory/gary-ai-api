@@ -43,7 +43,7 @@ const DEFAULT_OTP_RATE_LIMIT_CONFIG: OtpRateLimitConfig = {
 };
 
 const OTP_RATE_LIMIT_CONFIG_KEY = 'auth_otp_rate_limit_config';
-const OTP_TTL_SECONDS = 300;
+const OTP_TTL_SECONDS = 30 * 60;
 
 @Injectable()
 export class AuthService {
@@ -214,7 +214,7 @@ export class AuthService {
       `register:${email}`,
     )) as RegisterOtpPayload | null;
     if (!payload) {
-      throw new AppException({ code: AppCode.NOT_FOUND });
+      throw new AppException({ code: AppCode.VERIFICATION_UNAVAILABLE });
     }
 
     await this.assertOtpRateLimit('register', email);
@@ -350,7 +350,7 @@ export class AuthService {
       `forgot-password:${email}`,
     )) as ForgotPasswordOtpPayload | null;
     if (!payload) {
-      throw new AppException({ code: AppCode.NOT_FOUND });
+      throw new AppException({ code: AppCode.VERIFICATION_UNAVAILABLE });
     }
 
     await this.assertOtpRateLimit('forgot-password', email);

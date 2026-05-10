@@ -37,7 +37,9 @@ export class KlingService {
     );
 
     if (!taskId) {
-      throw new InternalServerErrorException('Kling API response missing task id');
+      throw new InternalServerErrorException(
+        'Kling API response missing task id',
+      );
     }
 
     await this.klingTasksDelegate.upsert({
@@ -117,7 +119,8 @@ export class KlingService {
   }
 
   async refreshTaskFromProvider(taskId: string): Promise<any> {
-    const providerResponse = await this.klingProvider.getTextToVideoTask(taskId);
+    const providerResponse =
+      await this.klingProvider.getTextToVideoTask(taskId);
     const status = this.normalizeStatus(
       providerResponse.data?.task_status ?? providerResponse.status,
     );
@@ -169,7 +172,9 @@ export class KlingService {
     return ['succeed', 'failed'].includes(status);
   }
 
-  private serializeHeaders(headers: Record<string, string | string[] | undefined>) {
+  private serializeHeaders(
+    headers: Record<string, string | string[] | undefined>,
+  ) {
     return Object.fromEntries(
       Object.entries(headers)
         .filter(([, value]) => value !== undefined)
@@ -178,20 +183,24 @@ export class KlingService {
   }
 
   private get klingTasksDelegate() {
-    return (this.prisma as PrismaService & {
-      kling_tasks: {
-        upsert(args: unknown): Promise<any>;
-        update(args: unknown): Promise<any>;
-        findUnique(args: unknown): Promise<any>;
-      };
-    }).kling_tasks;
+    return (
+      this.prisma as PrismaService & {
+        kling_tasks: {
+          upsert(args: unknown): Promise<any>;
+          update(args: unknown): Promise<any>;
+          findUnique(args: unknown): Promise<any>;
+        };
+      }
+    ).kling_tasks;
   }
 
   private get klingTaskCallbacksDelegate() {
-    return (this.prisma as PrismaService & {
-      kling_task_callbacks: {
-        create(args: unknown): Promise<any>;
-      };
-    }).kling_task_callbacks;
+    return (
+      this.prisma as PrismaService & {
+        kling_task_callbacks: {
+          create(args: unknown): Promise<any>;
+        };
+      }
+    ).kling_task_callbacks;
   }
 }

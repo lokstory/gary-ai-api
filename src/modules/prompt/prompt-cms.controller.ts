@@ -106,14 +106,14 @@ export class PromptCmsController {
   @ApiOperation({ summary: 'Update featured prompts' })
   @ApiRestArrayResponse(CmsPromptResponse)
   @Patch('featured')
-  async updateFeaturedPrompts(
-    @Body() input: CmsUpdateFeaturedPromptsRequest,
-  ) {
+  async updateFeaturedPrompts(@Body() input: CmsUpdateFeaturedPromptsRequest) {
     const prompts = await this.promptService.updateFeaturedPrompts(
       input.items ?? [],
     );
     const data = await Promise.all(
-      prompts.map((prompt) => this.promptService.toAdminResponseWithCategory(prompt)),
+      prompts.map((prompt) =>
+        this.promptService.toAdminResponseWithCategory(prompt),
+      ),
     );
     return RestResponse.success(data);
   }

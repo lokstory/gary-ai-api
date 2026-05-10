@@ -56,4 +56,10 @@ VALUES ('prompts', 1, 'DOWNLOAD', 'PDF', 'dev-gary-private', '1.pdf', 0);
 INSERT INTO public.files (ref_table, ref_id, category, file_type, bucket, url, position)
 VALUES ('prompts', 2, 'DOWNLOAD', 'PDF', 'dev-gary-private', '2.pdf', 0);
 
+INSERT INTO public.video_selector_types (selector_type, has_global_thumbnail)
+VALUES ('STYLE', FALSE),
+       ('MOVEMENT', TRUE),
+       ('MOTION', TRUE)
+ON CONFLICT (selector_type) DO NOTHING;
+
 

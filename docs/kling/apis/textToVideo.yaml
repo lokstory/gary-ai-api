@@ -1,0 +1,390 @@
+openapi: 3.0.0
+info:
+  title: Kling AI - Text to Video API
+  version: v1
+  base_url: https://api-singapore.klingai.com
+  description: >
+    Kling AI 文字轉影片 API，支援多模型、多鏡頭、鏡頭控制、音效生成等功能。
+    所有請求需在 Header 帶入 Bearer Token 進行認證。
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    TaskStatus:
+      type: string
+      enum: [submitted, processing, succeed, failed]
+
+    VideoResult:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 生成影片的全域唯一 ID
+        url:
+          type: string
+          description: 影片下載 URL（30 天後自動清除，請及時儲存）
+        watermark_url:
+          type: string
+          description: 含浮水印的影片下載 URL（防盜鏈格式）
+        duration:
+          type: string
+          description: 影片總時長，單位：秒
+
+    TaskData:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: 系統生成的任務 ID
+        task_status:
+          $ref: "#/components/schemas/TaskStatus"
+        task_status_msg:
+          type: string
+          description: 任務狀態說明，失敗時顯示失敗原因
+        task_info:
+          type: object
+          properties:
+            external_task_id:
+              type: string
+              description: 使用者自訂任務 ID
+        task_result:
+          type: object
+          properties:
+            videos:
+              type: array
+              items:
+                $ref: "#/components/schemas/VideoResult"
+        watermark_info:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+        final_unit_deduction:
+          type: string
+          description: 本次任務扣除的計費單位
+        created_at:
+          type: integer
+          format: int64
+          description: 任務建立時間（Unix 時間戳，毫秒）
+        updated_at:
+          type: integer
+          format: int64
+          description: 任務最後更新時間（Unix 時間戳，毫秒）
+
+    CameraConfig:
+      type: object
+      description: >
+        鏡頭移動參數，僅當 camera_control.type = simple 時使用。
+        6 個參數中只能有 1 個非零值，其餘必須為 0。
+      properties:
+        horizontal:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 水平平移（負=左移，正=右移）
+        vertical:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 垂直平移（負=下移，正=上移）
+        pan:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 水平旋轉（負=左轉，正=右轉）
+        tilt:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 垂直旋轉（負=俯仰下，正=俯仰上）
+        roll:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 滾轉（負=逆時針，正=順時針）
+        zoom:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 焦距縮放（負=縮小視野，正=擴大視野）
+
+    CameraControl:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            [
+              simple,
+              down_back,
+              forward_up,
+              right_turn_forward,
+              left_turn_forward,
+            ]
+          description: >
+            預設鏡頭運動類型：
+            simple = 自訂簡單運動（需搭配 config）；
+            down_back = 下降後退；
+            forward_up = 前進仰拍；
+            right_turn_forward = 右轉前進；
+            left_turn_forward = 左轉前進。
+            除 simple 外，config 必須為 None。
+        config:
+          $ref: "#/components/schemas/CameraConfig"
+
+    MultiPromptItem:
+      type: object
+      required: [index, prompt, duration]
+      properties:
+        index:
+          type: integer
+          description: 鏡頭序號（從 1 開始）
+        prompt:
+          type: string
+          maxLength: 512
+          description: 該鏡頭的正向提示詞
+        duration:
+          type: string
+          description: 該鏡頭時長（秒），不可超過總時長，最少 1 秒
+
+    CreateTaskRequest:
+      type: object
+      properties:
+        model_name:
+          type: string
+          default: kling-v1
+          enum:
+            - kling-v1
+            - kling-v1-6
+            - kling-v2-master
+            - kling-v2-1-master
+            - kling-v2-5-turbo
+            - kling-v2-6
+            - kling-v3
+          description: 指定呼叫的模型版本（舊欄位 model 仍相容，預設呼叫 v1）
+        prompt:
+          type: string
+          maxLength: 2500
+          description: >
+            正向文字提示詞。
+            multi_shot=false 或 shot_type=intelligence 時不可為空。
+            支援 <<<element_1>>>、<<<image_1>>>、<<<video_1>>>、<<<voice_1>>> 格式引用資源。
+        negative_prompt:
+          type: string
+          maxLength: 2500
+          description: 負向文字提示詞，建議以正向提示詞中的否定句補充
+        multi_shot:
+          type: boolean
+          default: false
+          description: >
+            是否啟用多鏡頭模式。
+            true：prompt 失效，不支援首/尾幀；
+            false：shot_type 與 multi_prompt 失效。
+        shot_type:
+          type: string
+          enum: [customize, intelligence]
+          description: 分鏡方式。multi_shot=true 時必填。
+        multi_prompt:
+          type: array
+          maxItems: 6
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/MultiPromptItem"
+          description: >
+            多鏡頭提示詞列表。multi_shot=true 且 shot_type=customize 時必填。
+            所有鏡頭時長之和須等於 duration 總時長。
+        mode:
+          type: string
+          default: std
+          enum: [std, pro, "4k"]
+          description: >
+            影片生成模式：
+            std = 標準模式（720P，低成本）；
+            pro = 專業模式（1080P，高品質）；
+            4k = 4K 模式（4K 解析度，最高品質）。
+        sound:
+          type: string
+          default: "off"
+          enum: ["on", "off"]
+          description: 是否同步生成音效
+        cfg_scale:
+          type: number
+          default: 0.5
+          minimum: 0
+          maximum: 1
+          description: 生成自由度（值越大模型自由度越小）。kling-v2.x 不支援此參數。
+        aspect_ratio:
+          type: string
+          default: "16:9"
+          enum: ["16:9", "9:16", "1:1"]
+          description: 輸出影片的寬高比
+        duration:
+          type: string
+          default: "5"
+          enum:
+            [
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9",
+              "10",
+              "11",
+              "12",
+              "13",
+              "14",
+              "15",
+            ]
+          description: 影片時長（秒）
+        camera_control:
+          $ref: "#/components/schemas/CameraControl"
+        watermark_info:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+          description: 是否同步生成含浮水印的影片（不支援自訂浮水印）
+        callback_url:
+          type: string
+          format: uri
+          description: 任務狀態變更時的回調通知 URL
+        external_task_id:
+          type: string
+          description: 使用者自訂任務 ID，同帳號下須唯一，不會覆蓋系統 task_id
+
+paths:
+  /v1/videos/text2video:
+    post:
+      summary: 建立文字轉影片任務
+      operationId: createTextToVideoTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+            example:
+              model_name: kling-v2-6
+              prompt: "A cute little rabbit wearing glasses, sitting at a table, reading a newspaper"
+              duration: "5"
+              mode: pro
+              sound: "on"
+              aspect_ratio: "1:1"
+      responses:
+        "200":
+          description: 任務建立成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    description: 錯誤碼（0 = 成功）
+                  message:
+                    type: string
+                  request_id:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      task_id:
+                        type: string
+                      task_info:
+                        type: object
+                        properties:
+                          external_task_id:
+                            type: string
+                      task_status:
+                        $ref: "#/components/schemas/TaskStatus"
+                      created_at:
+                        type: integer
+                        format: int64
+                      updated_at:
+                        type: integer
+                        format: int64
+
+    get:
+      summary: 查詢任務列表
+      operationId: listTextToVideoTasks
+      parameters:
+        - name: pageNum
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+            maximum: 1000
+          description: 頁碼
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 500
+          description: 每頁筆數
+      responses:
+        "200":
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  message:
+                    type: string
+                  request_id:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TaskData"
+
+  /v1/videos/text2video/{id}:
+    get:
+      summary: 查詢單一任務狀態與結果
+      operationId: getTextToVideoTask
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 填入 task_id 或 external_task_id（二擇一）
+      responses:
+        "200":
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  message:
+                    type: string
+                  request_id:
+                    type: string
+                  data:
+                    $ref: "#/components/schemas/TaskData"
+
+constraints:
+  - 影片 URL 有效期限為 30 天，請及時下載儲存
+  - model_name 舊欄位 model 仍相容，預設呼叫 v1 模型
+  - kling-v2.x 系列不支援 cfg_scale 參數
+  - camera_control.config 的 6 個參數中只能有 1 個非零值
+  - multi_prompt 所有鏡頭 duration 之和必須等於頂層 duration
+  - 使用 voice_list 且 prompt 引用 voice ID 時，計費方式為「含語音生成」
+  - 不同模型版本對 sound / mode / duration / camera_control 的支援範圍不同，請參考官方 Capability Map

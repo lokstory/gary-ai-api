@@ -3,9 +3,10 @@ import { AppException } from '../models/app.exception';
 import { AppCode } from '../models/app.code';
 
 @Injectable()
-export class PositiveIntValidationPipe
-  implements PipeTransform<string, number>
-{
+export class PositiveIntValidationPipe implements PipeTransform<
+  string,
+  number
+> {
   transform(value: string): number {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed <= 0) {

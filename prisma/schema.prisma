@@ -136,6 +136,7 @@ model orders {
   created_at   DateTime       @default(now()) @db.Timestamptz(6)
   updated_at   DateTime       @default(now()) @db.Timestamptz(6)
   fingerprint  String?        @db.VarChar(255)
+  display_id   String         @unique(map: "uk_orders_display_id") @db.VarChar(32)
   order_items  order_items[]
   users        users          @relation(fields: [user_id], references: [id], onDelete: Cascade)
   payments     payments[]
@@ -176,6 +177,36 @@ model user_prompts {
   users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([user_id, prompt_id])
+}
+
+model ai_video_models {
+  id                          BigInt                        @id @default(autoincrement())
+  uuid                        String                        @unique(map: "uk_ai_video_models_uuid") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider                    String                        @db.VarChar(50)
+  model                       String                        @db.VarChar(128)
+  name                        String                        @db.VarChar(255)
+  enabled                     Boolean                       @default(true)
+  position                    Int                           @default(0)
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  ai_video_model_translations ai_video_model_translations[]
+
+  @@unique([provider, model], map: "uk_ai_video_models_provider_model")
+  @@index([enabled, position, id], map: "idx_ai_video_models_enabled_position")
+  @@index([provider, enabled, position, id], map: "idx_ai_video_models_provider_enabled_position")
+}
+
+model ai_video_model_translations {
+  id              BigInt          @id @default(autoincrement())
+  video_model_id  BigInt
+  locale          String          @db.VarChar(16)
+  description     String?
+  created_at      DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime        @default(now()) @db.Timestamptz(6)
+  ai_video_models ai_video_models @relation(fields: [video_model_id], references: [id], onDelete: Cascade)
+
+  @@unique([video_model_id, locale], map: "uk_ai_video_model_translations_model_locale")
+  @@index([locale], map: "idx_ai_video_model_translations_locale")
 }
 
 model admins {
@@ -271,4 +302,45 @@ model prompt_translations {
   @@unique([prompt_id, locale], map: "uk_prompt_translations_prompt_id_locale")
   @@index([locale], map: "idx_prompt_translations_locale")
   @@index([prompt_id], map: "idx_prompt_translations_prompt_id")
+}
+
+/// Example videos are attached per selector with files.ref_table = "video_selectors".
+/// STYLE thumbnails are attached to each video file; MOVEMENT and MOTION thumbnails are resolved globally through video_selector_types.
+model video_selectors {
+  id                          BigInt                        @id @default(autoincrement())
+  uuid                        String                        @unique(map: "uk_video_selectors_uuid") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  selector_type               String                        @db.VarChar(32)
+  code                        String                        @db.VarChar(128)
+  prompt                      String
+  enabled                     Boolean                       @default(true)
+  position                    Int                           @default(0)
+  created_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime                      @default(now()) @db.Timestamptz(6)
+  video_selector_translations video_selector_translations[]
+
+  @@unique([selector_type, code], map: "uk_video_selectors_type_code")
+  @@index([enabled], map: "idx_video_selectors_enabled")
+  @@index([selector_type, enabled, position, id], map: "idx_video_selectors_type_enabled_position")
+}
+
+model video_selector_translations {
+  id                BigInt          @id @default(autoincrement())
+  video_selector_id BigInt
+  locale            String          @db.VarChar(16)
+  name              String          @db.VarChar(255)
+  created_at        DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime        @default(now()) @db.Timestamptz(6)
+  video_selectors   video_selectors @relation(fields: [video_selector_id], references: [id], onDelete: Cascade, map: "fk_video_selector_translations_selector_id")
+
+  @@unique([video_selector_id, locale], map: "uk_video_selector_translations_selector_locale")
+  @@index([locale], map: "idx_video_selector_translations_locale")
+  @@index([video_selector_id], map: "idx_video_selector_translations_selector_id")
+}
+
+model video_selector_types {
+  id                   BigInt   @id @default(autoincrement())
+  selector_type        String   @unique(map: "uk_video_selector_types_type") @db.VarChar(32)
+  has_global_thumbnail Boolean  @default(false)
+  created_at           DateTime @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime @default(now()) @db.Timestamptz(6)
 }

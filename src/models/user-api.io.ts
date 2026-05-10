@@ -150,6 +150,15 @@ export class ListPromptsQuery extends PageQuery {
   category?: string;
 }
 
+export class ListVideoSelectorsQuery {
+  @ApiPropertyOptional({ description: 'Filter by selector type' })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(32)
+  selector_type?: string;
+}
+
 export class UserInfoResponse {
   @ApiProperty({ description: 'Public UUID for API' })
   uuid: string;
@@ -181,12 +190,38 @@ export class PublicNamedItemResponse {
   name: string;
 }
 
+export class VideoSelectorResponse {
+  @ApiProperty()
+  uuid: string;
+
+  @ApiProperty()
+  selector_type: string;
+
+  @ApiProperty()
+  code: string;
+
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty()
+  prompt: string;
+
+  @ApiProperty()
+  position: number;
+
+  @ApiPropertyOptional({ type: () => PromptFileResponse, nullable: true })
+  cover?: PromptFileResponse | null;
+}
+
 export class WebConfigResponse {
   @ApiProperty({ type: [PublicNamedItemResponse] })
   prompt_labels: PublicNamedItemResponse[];
 
   @ApiProperty({ type: [PublicNamedItemResponse] })
   prompt_categories: PublicNamedItemResponse[];
+
+  @ApiProperty({ type: [VideoSelectorResponse] })
+  video_selectors: VideoSelectorResponse[];
 }
 
 export class PromptFileResponse {
@@ -328,6 +363,9 @@ export class OrderPaymentResponse {
 export class OrderResponse {
   @ApiProperty()
   uuid: string;
+
+  @ApiProperty({ example: 'ORD-260505-K8P2M9' })
+  display_id: string;
 
   @ApiProperty()
   status: string;

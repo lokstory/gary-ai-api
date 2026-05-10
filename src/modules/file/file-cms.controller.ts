@@ -33,56 +33,56 @@ type UploadedBinaryFile = {
 @UseGuards(AdminJwtAuthGuard)
 export class FileCmsController {
   constructor(private readonly fileService: FileService) {}
-
-  @ApiOperation({ summary: 'Test upload file to public bucket' })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['file'],
-      properties: {
-        file: {
-          type: 'string',
-          format: 'binary',
-        },
-      },
-    },
-  })
-  @ApiRestResponse(AdminTestUploadResponse)
-  @Post('test-upload/public')
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadPublicFile(@UploadedFile() file?: UploadedBinaryFile) {
-    if (!file) {
-      throw new BadRequestException('file is required');
-    }
-
-    const data = await this.fileService.uploadTestFile(file, 'public');
-    return RestResponse.success(data);
-  }
-
-  @ApiOperation({ summary: 'Test upload file to private bucket' })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['file'],
-      properties: {
-        file: {
-          type: 'string',
-          format: 'binary',
-        },
-      },
-    },
-  })
-  @ApiRestResponse(AdminTestUploadResponse)
-  @Post('test-upload/private')
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadPrivateFile(@UploadedFile() file?: UploadedBinaryFile) {
-    if (!file) {
-      throw new BadRequestException('file is required');
-    }
-
-    const data = await this.fileService.uploadTestFile(file, 'private');
-    return RestResponse.success(data);
-  }
+  //
+  // @ApiOperation({ summary: 'Test upload file to public bucket' })
+  // @ApiConsumes('multipart/form-data')
+  // @ApiBody({
+  //   schema: {
+  //     type: 'object',
+  //     required: ['file'],
+  //     properties: {
+  //       file: {
+  //         type: 'string',
+  //         format: 'binary',
+  //       },
+  //     },
+  //   },
+  // })
+  // @ApiRestResponse(AdminTestUploadResponse)
+  // @Post('test-upload/public')
+  // @UseInterceptors(FileInterceptor('file'))
+  // async uploadPublicFile(@UploadedFile() file?: UploadedBinaryFile) {
+  //   if (!file) {
+  //     throw new BadRequestException('file is required');
+  //   }
+  //
+  //   const data = await this.fileService.uploadTestFile(file, 'public');
+  //   return RestResponse.success(data);
+  // }
+  //
+  // @ApiOperation({ summary: 'Test upload file to private bucket' })
+  // @ApiConsumes('multipart/form-data')
+  // @ApiBody({
+  //   schema: {
+  //     type: 'object',
+  //     required: ['file'],
+  //     properties: {
+  //       file: {
+  //         type: 'string',
+  //         format: 'binary',
+  //       },
+  //     },
+  //   },
+  // })
+  // @ApiRestResponse(AdminTestUploadResponse)
+  // @Post('test-upload/private')
+  // @UseInterceptors(FileInterceptor('file'))
+  // async uploadPrivateFile(@UploadedFile() file?: UploadedBinaryFile) {
+  //   if (!file) {
+  //     throw new BadRequestException('file is required');
+  //   }
+  //
+  //   const data = await this.fileService.uploadTestFile(file, 'private');
+  //   return RestResponse.success(data);
+  // }
 }

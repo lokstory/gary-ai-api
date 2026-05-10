@@ -1,0 +1,504 @@
+# Kling AI - Video Model Capability Map
+# 用途：供 AI 與 API 文檔比對，驗證 model_name / mode / duration / 功能 的合法組合
+# 資料來源：https://kling.ai/document-api/apiReference/model/videoModels
+
+# ============================================================
+# 規則說明
+# ============================================================
+# ✅ = 支援
+# ❌ = 明確不支援（參數存在但功能不可用）
+# "-" = 不適用 / 無此組合
+# 比對方式：呼叫 API 時，以 model_name + mode + duration + feature 查表，
+#           確認該組合是否為 ✅，否則視為非法請求。
+
+# ============================================================
+# 模型輸出規格對照（解析度 / 幀率）
+# ============================================================
+output_specs:
+  kling-v1:
+    std: { resolution: 720p, frame_rate: 30fps }
+    pro: { resolution: 1080p, frame_rate: 30fps }
+  kling-v1-5:
+    std: { resolution: 720p, frame_rate: 30fps }
+    pro: { resolution: 1080p, frame_rate: 30fps }
+  kling-v1-6:
+    image_to_video:
+      std: { resolution: 720p, frame_rate: 30fps }
+      pro: { resolution: 1080p, frame_rate: 30fps }
+    text_to_video:
+      std: { resolution: 720p, frame_rate: 30fps }
+      pro: { resolution: 1080p, frame_rate: 30fps }
+  kling-v2-master:
+    std: { resolution: 720p, frame_rate: 24fps }
+    pro: { resolution: 1080p, frame_rate: 24fps }
+    default: { resolution: 720p, frame_rate: 24fps } # 無明確 mode 時
+  kling-v2-1:
+    image_to_video:
+      std: { resolution: 720p, frame_rate: 24fps }
+      pro: { resolution: 1080p, frame_rate: 24fps }
+  kling-v2-1-master:
+    pro: { resolution: 1080p, frame_rate: 24fps }
+  kling-v2-5-turbo:
+    image_to_video:
+      pro: { resolution: 1080p, frame_rate: 24fps }
+    text_to_video:
+      pro: { resolution: 1080p, frame_rate: 24fps }
+
+# ============================================================
+# 各模型能力矩陣
+# ============================================================
+
+models:
+  # ----------------------------------------------------------
+  kling-video-o1:
+    # ----------------------------------------------------------
+    supported_modes: [std, pro]
+    supported_durations: [3, 4, 5, 6, 7, 8, 9, 10] # 3s～10s
+    note: "Omni 系列模型，支援多媒體資源引用（<<<image_N>>>、<<<element_N>>>、<<<video_N>>>）"
+
+    text_to_video:
+      single_shot:
+        std_5s: ✅
+        std_10s: ✅
+        pro_5s: ✅
+        pro_10s: ✅
+        note: "僅支援 5s 與 10s"
+      multi_shot: ❌
+      voice_control: ❌
+
+    image_to_video:
+      single_shot_start_frame_only:
+        std_5s: ✅
+        std_10s: ✅
+        pro_5s: ✅
+        pro_10s: ✅
+        note: "僅支援起始幀（first_frame），僅支援 5s 與 10s"
+      start_and_end_frame:
+        std: ✅
+        pro: ✅
+        note: "image_list 超過 2 張時不支援設定首尾幀"
+      element_control:
+        supported_element_types: [multi_image_elements]
+        std: ✅
+        pro: ✅
+        note: "不支援 video character elements"
+      video_reference:
+        std: ✅
+        pro: ✅
+        note: "包含 multi-image elements"
+      voice_control: ❌
+      multi_shot: ❌
+
+  # ----------------------------------------------------------
+  kling-v3-omni:
+    # ----------------------------------------------------------
+    supported_modes: [std, pro, "4k"]
+    supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] # 3s～15s
+
+    text_to_video:
+      single_shot:
+        std: ✅
+        pro: ✅
+        4k: ✅
+      multi_shot:
+        std: ✅
+        pro: ✅
+        4k: ✅
+      voice_control: ❌
+
+    image_to_video:
+      single_shot:
+        std: ✅
+        pro: ✅
+        4k: ✅
+      multi_shot:
+        std: ✅
+        pro: ✅
+        4k: ✅
+      start_and_end_frame:
+        std: ✅
+        pro: ✅
+        4k: ✅
+        note: "使用首尾幀時 element_list 最多 3 個"
+      element_control:
+        supported_element_types:
+          [video_character_elements, multi_image_elements]
+        std: ✅
+        pro: ✅
+        4k: ✅
+      video_reference:
+        std: ✅ # 僅 3s～10s
+        pro: ✅ # 僅 3s～10s
+        4k: ❌
+        note: "4K 模式不支援影片參考；有參考影片時 sound 只能為 off"
+      voice_control: ❌
+
+  # ----------------------------------------------------------
+  kling-v1:
+    # ----------------------------------------------------------
+    supported_modes: [std, pro]
+    supported_durations: [5, 10]
+
+    text_to_video:
+      video_generation:
+        std_5s: ✅
+        std_10s: ✅
+        pro_5s: ✅
+        pro_10s: ✅
+      camera_control:
+        std_5s: ✅
+        std_10s: "-"
+        pro_5s: "-"
+        pro_10s: "-"
+
+    image_to_video:
+      video_generation:
+        std_5s: ✅
+        std_10s: ✅
+        pro_5s: ✅
+        pro_10s: ✅
+      start_end_frame:
+        std_5s: ✅
+        std_10s: "-"
+        pro_5s: ✅
+        pro_10s: "-"
+      motion_brush:
+        std_5s: ✅
+        std_10s: "-"
+        pro_5s: ✅
+        pro_10s: "-"
+
+    video_extension:
+      note: "不支援 negative_prompt 和 cfg_scale"
+      std_5s: ✅
+      std_10s: ✅
+      pro_5s: ✅
+      pro_10s: ✅
+
+    video_effects:
+      dual_character: [Hug, Kiss, heart_gesture]
+      std_5s: ✅
+      std_10s: ✅
+      pro_5s: ✅
+      pro_10s: ✅
+
+  # ----------------------------------------------------------
+  kling-v1-5:
+    # ----------------------------------------------------------
+    supported_modes: [std, pro]
+    supported_durations: [5, 10]
+
+    text_to_video:
+      video_generation: "-" # 所有組合均不支援
+
+    image_to_video:
+      video_generation:
+        std_5s: ✅
+        std_10s: ✅
+        pro_5s: ✅
+        pro_10s: ✅
+      start_end_frame:
+        std_5s: "-"
+        std_10s: "-"
+        pro_5s: ✅
+        pro_10s: ✅
+      end_frame_only:
+        pro_5s: ✅
+        pro_10s: ✅
+      motion_brush:
+        pro_5s: ✅
+        note: "僅 pro 5s 支援"
+      camera_control:
+        type: simple_only
+        pro_5s: ✅
+        note: "僅支援 simple 類型，僅 pro 5s"
+
+    video_extension:
+      std_5s: ✅
+      std_10s: ✅
+      pro_5s: ✅
+      pro_10s: ✅
+
+    video_effects:
+      dual_character: [Hug, Kiss, heart_gesture]
+      std_5s: ✅
+      std_10s: ✅
+      pro_5s: ✅
+      pro_10s: ✅
+
+  # ----------------------------------------------------------
+  kling-v1-6:
+    # ----------------------------------------------------------
+    supported_modes: [std, pro]
+    supported_durations: [5, 10]
+
+    text_to_video:
+      video_generation:
+        std_5s: ✅
+        std_10s: ✅
+        pro_5s: ✅
+        pro_10s: ✅
+
+    image_to_video:
+      video_generation:
+        std_5s: ✅
+        std_10s: ✅
+        pro_5s: ✅
+        pro_10s: ✅
+      start_end_frame:
+        pro_5s: ✅
+        pro_10s: ✅
+      end_frame_only:
+        pro_5s: ✅
+        pro_10s: ✅
+
+    multi_image_to_video:
+      std_5s: ✅
+      std_10s: ✅
+      pro_5s: ✅
+      pro_10s: ✅
+
+    multi_elements:
+      std_5s: ✅
+      std_10s: ✅
+      pro_5s: ✅
+      pro_10s: ✅
+
+    video_extension:
+      std_5s: ✅
+      std_10s: ✅
+      pro_5s: ✅
+      pro_10s: ✅
+
+    video_effects:
+      dual_character: [Hug, Kiss, heart_gesture]
+      std_5s: ✅
+      std_10s: ✅
+      pro_5s: ✅
+      pro_10s: ✅
+
+  # ----------------------------------------------------------
+  kling-v2-master:
+    # ----------------------------------------------------------
+    supported_modes: [std, pro] # mode 欄位可能不適用，以 duration 為主
+    supported_durations: [5, 10]
+
+    text_to_video:
+      video_generation:
+        5s: ✅
+        10s: ✅
+
+    image_to_video:
+      video_generation:
+        5s: ✅
+        10s: ✅
+
+  # ----------------------------------------------------------
+  kling-v2-1:
+    # ----------------------------------------------------------
+    supported_modes: [std, pro]
+    supported_durations: [5, 10]
+    note: "text_to_video 全不支援"
+
+    text_to_video:
+      all: "-"
+
+    image_to_video:
+      video_generation:
+        std_5s: ✅
+        std_10s: ✅
+        pro_5s: ✅
+        pro_10s: ✅
+      start_end_frame:
+        std: "-"
+        pro_5s: ✅
+        pro_10s: ✅
+
+  # ----------------------------------------------------------
+  kling-v2-1-master:
+    # ----------------------------------------------------------
+    supported_durations: [5, 10]
+
+    text_to_video:
+      video_generation:
+        5s: ✅
+        10s: ✅
+
+    image_to_video:
+      video_generation:
+        5s: ✅
+        10s: ✅
+
+  # ----------------------------------------------------------
+  kling-v2-5-turbo:
+    # ----------------------------------------------------------
+    supported_modes: [std, pro]
+    supported_durations: [5, 10]
+
+    text_to_video:
+      video_generation:
+        std_5s: ✅
+        std_10s: ✅
+        pro_5s: ✅
+        pro_10s: ✅
+
+    image_to_video:
+      video_generation:
+        std_5s: ✅
+        std_10s: ✅
+        pro_5s: ✅
+        pro_10s: ✅
+      start_end_frame:
+        pro_5s: ✅
+        pro_10s: ✅
+
+  # ----------------------------------------------------------
+  kling-v2-6:
+    # ----------------------------------------------------------
+    supported_modes: [std, pro]
+    supported_durations:
+      std: [5, 10]
+      pro: [5, 10]
+      motion_control_only: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    note: "std 模式不支援音效（only no audio）；motion_control 為獨立的 duration 組合"
+
+    text_to_video:
+      video_generation:
+        std_5s: ✅ # only no audio
+        std_10s: ✅ # only no audio
+        pro_5s: ✅
+        pro_10s: ✅
+
+    image_to_video:
+      video_generation:
+        std_5s: ✅ # only no audio
+        std_10s: ✅ # only no audio
+        pro_5s: ✅
+        pro_10s: ✅
+      start_end_frame:
+        pro_5s: ✅ # only no audio
+        pro_10s: ✅ # only no audio
+      voice_control:
+        pro_5s: ✅
+        pro_10s: ✅
+        note: "僅 pro 模式支援語音控制"
+      motion_control:
+        std_other_duration: ✅
+        pro_other_duration: ✅
+        note: "motion_control 僅適用於非 5s/10s 的 duration 組合"
+
+  # ----------------------------------------------------------
+  kling-v3:
+    # ----------------------------------------------------------
+    supported_modes: [std, pro, "4k"]
+    supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] # 3s～15s
+
+    text_to_video:
+      single_shot:
+        std: ✅
+        pro: ✅
+        4k: ✅
+      multi_shot:
+        std: ✅
+        pro: ✅
+        4k: ✅
+      voice_control: ❌
+
+    image_to_video:
+      single_shot_start_frame_only:
+        std: ✅
+        pro: ✅
+        4k: ✅
+      multi_shot:
+        std: ✅
+        pro: ✅
+        4k: ✅
+      start_and_end_frame:
+        std: ✅
+        pro: ✅
+        4k: ✅
+      element_control:
+        supported_element_types:
+          [video_character_elements, multi_image_elements]
+        std: ✅
+        pro: ✅
+        4k: ✅
+      motion_control:
+        std: ✅
+        pro: ✅
+        4k: ❌
+        note: "4K 模式不支援 motion_control"
+      voice_control: ❌
+
+# ============================================================
+# 與模型無關的功能支援
+# ============================================================
+model_independent_features:
+  avatar:
+    supported: true
+    description: "使用單張照片生成數位人播報風格影片"
+  lip_sync:
+    supported: true
+    description: "可搭配文字或音訊驅動影片中角色的口型，適用所有 Kling 模型生成的影片"
+  video_to_audio:
+    supported: true
+    description: "支援為所有 Kling 模型生成的影片及使用者上傳影片加入音訊"
+  text_to_audio:
+    supported: false
+    description: "支援透過文字提示詞生成音訊"
+
+# ============================================================
+# 比對規則索引（供 AI 使用）
+# ============================================================
+validation_rules:
+  - rule_id: R01
+    description: "呼叫 text_to_video 時，model_name 必須存在於該功能支援清單中"
+    check: "models[model_name].text_to_video.video_generation 必須為 ✅"
+
+  - rule_id: R02
+    description: "呼叫 image_to_video 並帶入 start_end_frame 時，需確認對應 mode + duration 組合有 ✅"
+    check: "models[model_name].image_to_video.start_end_frame[mode+duration] === ✅"
+
+  - rule_id: R03
+    description: "使用 motion_brush（static_mask / dynamic_masks）時，需確認模型支援"
+    check: "models[model_name].image_to_video.motion_brush === ✅"
+
+  - rule_id: R04
+    description: "使用 camera_control 時，需確認模型與 mode/duration 支援"
+    check: "models[model_name].text_to_video.camera_control 或 image_to_video.camera_control === ✅"
+
+  - rule_id: R05
+    description: "使用 multi_shot=true 時，需確認模型支援 multi_shot"
+    check: "models[model_name].[text/image]_to_video.multi_shot === ✅"
+
+  - rule_id: R06
+    description: "使用 sound=on 時，需確認模型非明確標注 voice_control=❌ 或 only no audio"
+    check: "models[model_name].[task_type].voice_control !== ❌ AND mode 非 std（kling-v2-6）"
+
+  - rule_id: R07
+    description: "使用 4k mode 時，需確認模型支援 4k"
+    check: "models[model_name].supported_modes 包含 '4k'"
+
+  - rule_id: R08
+    description: "duration 需在模型的 supported_durations 範圍內"
+    check: "duration in models[model_name].supported_durations"
+
+  - rule_id: R09
+    description: "kling-v2-6 std 模式下，sound 只能為 off"
+    check: "model_name=kling-v2-6 AND mode=std => sound must be off"
+
+  - rule_id: R10
+    description: "kling-v2-6 motion_control 只適用於非 5s/10s 的 duration"
+    check: "model_name=kling-v2-6 AND camera_control is set => duration not in [5, 10]"
+
+  - rule_id: R11
+    description: "Omni 系列（kling-video-o1、kling-v3-omni）有參考影片時 sound 只能為 off"
+    check: "video_list is not empty => sound must be off"
+
+  - rule_id: R12
+    description: "kling-v3-omni 影片參考（video_list）不支援 4k 模式"
+    check: "model_name=kling-v3-omni AND video_list not empty => mode != 4k"
+
+  - rule_id: R13
+    description: "kling-video-o1 使用首尾幀（start+end frame）時不支援 element_list"
+    check: "model_name=kling-video-o1 AND image_list has end_frame => element_list must be empty"

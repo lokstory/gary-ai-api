@@ -1,0 +1,522 @@
+openapi: 3.0.0
+info:
+  title: Platform Pricing Config API
+  version: v1
+  description: >
+    影像生成平台點數設定 API。
+    後台管理員透過此 API 設定每個 Model 各元件參數的平台點數。
+    前台透過此 API 取得設定，即時計算並顯示本次生成所需點數。
+
+    平台點數計算公式（加法模型）：
+      total_points =
+        mode_points[mode]
+        + image_points[has_value | empty]
+        + image_tail_points[has_value | empty]
+        + duration_seconds × duration.points_per_second
+        + sound_points[on | off]
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+
+    # ----------------------------------------------------------
+    # 核心 Schema：單一 Model 的點數設定
+    # ----------------------------------------------------------
+    ModelPricingConfig:
+      type: object
+      required: [model_name, components]
+      properties:
+        model_name:
+          type: string
+          enum:
+            - kling-video-o1
+            - kling-v3-omni
+            - kling-v3
+            - kling-v2-6
+            - kling-v2-5-turbo
+            - kling-v2-1
+            - kling-v2-master
+            - kling-v2-1-master
+            - kling-v1-6
+            - kling-v1-5
+            - kling-v1
+          description: 模型識別名稱
+
+        enabled:
+          type: boolean
+          default: true
+          description: 此模型是否在前台開放使用
+
+        components:
+          type: object
+          description: 各元件的點數設定
+          required: [mode, image, image_tail, duration, sound]
+          properties:
+
+            mode:
+              type: object
+              description: >
+                生成模式點數設定。
+                kling-v2-master / kling-v2-1-master 無 mode 欄位，
+                此欄位對該模型無作用（前台應隱藏 mode 元件）。
+              properties:
+                std:
+                  $ref: "#/components/schemas/PointValue"
+                pro:
+                  $ref: "#/components/schemas/PointValue"
+                "4k":
+                  $ref: "#/components/schemas/PointValue"
+              example:
+                std:
+                  points: 20
+                  api_units_reference: "0.6~0.8 units/s（依模型）"
+                pro:
+                  points: 40
+                  api_units_reference: "0.8~1.2 units/s（依模型）"
+                "4k":
+                  points: 150
+                  api_units_reference: "3.0 units/s"
+
+            image:
+              type: object
+              description: >
+                首幀圖片（image）元件點數設定。
+                多數模型中，有無首幀圖片不影響 Kling API 費率，
+                平台可自行決定是否加收功能點數。
+              required: [empty, has_value]
+              properties:
+                empty:
+                  $ref: "#/components/schemas/PointValue"
+                  description: "未上傳圖片時的點數（通常設為 0）"
+                has_value:
+                  $ref: "#/components/schemas/PointValue"
+                  description: "已上傳圖片時的點數"
+              example:
+                empty:
+                  points: 0
+                has_value:
+                  points: 20
+                  note: "API 不因此收費，此為平台功能費"
+
+            image_tail:
+              type: object
+              description: >
+                尾幀圖片（image_tail）元件點數設定。
+                多數模型中，有無尾幀不影響 Kling API 費率，
+                平台可自行決定是否加收功能點數。
+              required: [empty, has_value]
+              properties:
+                empty:
+                  $ref: "#/components/schemas/PointValue"
+                  description: "未上傳尾幀時的點數（通常設為 0）"
+                has_value:
+                  $ref: "#/components/schemas/PointValue"
+                  description: "已上傳尾幀時的點數"
+              example:
+                empty:
+                  points: 0
+                has_value:
+                  points: 15
+                  note: "API 不因此收費，此為平台功能費"
+
+            duration:
+              type: object
+              description: >
+                影片時長元件點數設定（按秒計費）。
+                前台 UI 顯示秒數選擇，計算公式為：
+                points = duration_seconds × points_per_second
+              required: [points_per_second]
+              properties:
+                points_per_second:
+                  type: number
+                  minimum: 0
+                  description: "每一秒消耗的點數"
+              example:
+                points_per_second: 15
+
+            sound:
+              type: object
+              description: >
+                音效元件點數設定。
+                kling-v3 / kling-v3-omni / kling-v2-6 中，sound=on 對應更高 API 費率。
+                其他模型中，sound 不影響 API 費率，但平台可自行加收點數。
+                注意：kling-v2-6 的 std 模式不支援 sound=on。
+              required: [off, on]
+              properties:
+                off:
+                  $ref: "#/components/schemas/PointValue"
+                  description: "音效關閉時的點數（通常設為 0）"
+                on:
+                  $ref: "#/components/schemas/PointValue"
+                  description: "音效開啟時的點數"
+              example:
+                off:
+                  points: 0
+                on:
+                  points: 30
+
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: "最後更新時間（ISO 8601）"
+
+        updated_by:
+          type: string
+          readOnly: true
+          description: "最後更新者帳號"
+
+    # ----------------------------------------------------------
+    # 點數值物件
+    # ----------------------------------------------------------
+    PointValue:
+      type: object
+      required: [points]
+      properties:
+        points:
+          type: number
+          minimum: 0
+          description: "消耗的平台點數"
+        note:
+          type: string
+          description: "備註（選填，供後台管理員記錄說明）"
+
+    # ----------------------------------------------------------
+    # 前台計算結果
+    # ----------------------------------------------------------
+    PointsEstimation:
+      type: object
+      properties:
+        total_points:
+          type: number
+          description: "本次生成預估消耗的總點數"
+        breakdown:
+          type: object
+          description: "各元件的點數明細"
+          properties:
+            mode:
+              type: number
+            image:
+              type: number
+            image_tail:
+              type: number
+            duration:
+              type: number
+              description: "duration_seconds × points_per_second"
+            sound:
+              type: number
+        params:
+          type: object
+          description: "計算所使用的參數（原始輸入值）"
+          properties:
+            model_name:
+              type: string
+            mode:
+              type: string
+            image_present:
+              type: boolean
+            image_tail_present:
+              type: boolean
+            duration_seconds:
+              type: integer
+            sound:
+              type: string
+
+
+# ============================================================
+# Paths
+# ============================================================
+
+paths:
+
+  # ----------------------------------------------------------
+  # [前台] 取得指定 Model 的點數設定
+  # 前台 UI 在 Model 切換或任何元件值變動時呼叫，
+  # 取得 config 後在本地計算並即時顯示點數
+  # ----------------------------------------------------------
+  /v1/pricing-config/{model_name}:
+    get:
+      summary: "[前台] 取得指定 Model 的點數設定"
+      operationId: getPricingConfig
+      tags: [Frontend]
+      parameters:
+        - name: model_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Model 名稱，例如 kling-v3"
+      responses:
+        "200":
+          description: "成功取得點數設定"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  data:
+                    $ref: "#/components/schemas/ModelPricingConfig"
+              example:
+                code: 0
+                data:
+                  model_name: kling-v3
+                  enabled: true
+                  components:
+                    mode:
+                      std: { points: 20 }
+                      pro: { points: 40 }
+                      "4k": { points: 150 }
+                    image:
+                      empty: { points: 0 }
+                      has_value: { points: 20 }
+                    image_tail:
+                      empty: { points: 0 }
+                      has_value: { points: 15 }
+                    duration:
+                      points_per_second: 15
+                    sound:
+                      off: { points: 0 }
+                      on: { points: 30 }
+        "404":
+          description: "Model 不存在或未啟用"
+
+  # ----------------------------------------------------------
+  # [前台] 計算點數（選用）
+  # 若不想讓前台自行計算，可由後端根據參數直接回傳點數明細
+  # ----------------------------------------------------------
+  /v1/pricing-config/{model_name}/estimate:
+    post:
+      summary: "[前台] 根據當前參數計算預估點數"
+      operationId: estimatePoints
+      tags: [Frontend]
+      parameters:
+        - name: model_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode, duration, sound]
+              properties:
+                mode:
+                  type: string
+                  enum: [std, pro, "4k"]
+                image_present:
+                  type: boolean
+                  default: false
+                  description: "image 元件是否已上傳圖片"
+                image_tail_present:
+                  type: boolean
+                  default: false
+                  description: "image_tail 元件是否已上傳圖片"
+                duration_seconds:
+                  type: integer
+                  minimum: 1
+                sound:
+                  type: string
+                  enum: ["on", "off"]
+            example:
+              mode: pro
+              image_present: true
+              image_tail_present: false
+              duration_seconds: 7
+              sound: "on"
+      responses:
+        "200":
+          description: "點數計算結果"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  data:
+                    $ref: "#/components/schemas/PointsEstimation"
+              example:
+                code: 0
+                data:
+                  total_points: 195
+                  breakdown:
+                    mode: 40          # pro = 40
+                    image: 20         # has_value = 20
+                    image_tail: 0     # empty = 0
+                    duration: 105     # 7s × 15 = 105
+                    sound: 30         # on = 30
+                  params:
+                    model_name: kling-v3
+                    mode: pro
+                    image_present: true
+                    image_tail_present: false
+                    duration_seconds: 7
+                    sound: "on"
+
+  # ----------------------------------------------------------
+  # [後台] 取得所有 Model 的點數設定列表
+  # ----------------------------------------------------------
+  /v1/admin/pricing-configs:
+    get:
+      summary: "[後台] 取得所有 Model 點數設定"
+      operationId: adminListPricingConfigs
+      tags: [Admin]
+      responses:
+        "200":
+          description: "成功取得所有 Model 設定"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModelPricingConfig"
+
+  # ----------------------------------------------------------
+  # [後台] 取得 / 更新單一 Model 的點數設定
+  # ----------------------------------------------------------
+  /v1/admin/pricing-configs/{model_name}:
+    get:
+      summary: "[後台] 取得單一 Model 點數設定"
+      operationId: adminGetPricingConfig
+      tags: [Admin]
+      parameters:
+        - name: model_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "成功取得"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  data:
+                    $ref: "#/components/schemas/ModelPricingConfig"
+
+    put:
+      summary: "[後台] 更新單一 Model 點數設定"
+      operationId: adminUpdatePricingConfig
+      tags: [Admin]
+      parameters:
+        - name: model_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelPricingConfig"
+            examples:
+              kling-v3範例:
+                value:
+                  model_name: kling-v3
+                  enabled: true
+                  components:
+                    mode:
+                      std: { points: 20 }
+                      pro: { points: 40 }
+                      "4k": { points: 150 }
+                    image:
+                      empty: { points: 0 }
+                      has_value: { points: 20 }
+                    image_tail:
+                      empty: { points: 0 }
+                      has_value: { points: 15 }
+                    duration:
+                      points_per_second: 15
+                    sound:
+                      off: { points: 0 }
+                      on: { points: 30 }
+              kling-v2-master範例:
+                value:
+                  model_name: kling-v2-master
+                  enabled: true
+                  components:
+                    mode:               # 此模型無 mode，設 0 即可
+                      std: { points: 0 }
+                      pro: { points: 0 }
+                      "4k": { points: 0 }
+                    image:
+                      empty: { points: 0 }
+                      has_value: { points: 0 }
+                    image_tail:
+                      empty: { points: 0 }
+                      has_value: { points: 0, note: "此模型不支援尾幀" }
+                    duration:
+                      points_per_second: 100  # 5s=500點, 10s=1000點
+                    sound:
+                      off: { points: 0 }
+                      on: { points: 0 }
+      responses:
+        "200":
+          description: "更新成功"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  message:
+                    type: string
+                    example: "Updated successfully"
+                  data:
+                    $ref: "#/components/schemas/ModelPricingConfig"
+        "400":
+          description: "參數錯誤（如 model_name 不符）"
+        "403":
+          description: "權限不足"
+
+
+# ============================================================
+# 前台計算邏輯（供前端工程師參考）
+# ============================================================
+#
+# 取得 config 後，前台即時計算：
+#
+# function calculatePoints(config, params) {
+#   const { mode, image_present, image_tail_present, duration_seconds, sound } = params
+#   const c = config.components
+#
+#   const mode_pts        = c.mode[mode]?.points ?? 0
+#   const image_pts       = image_present ? (c.image.has_value?.points ?? 0) : (c.image.empty?.points ?? 0)
+#   const image_tail_pts  = image_tail_present ? (c.image_tail.has_value?.points ?? 0) : (c.image_tail.empty?.points ?? 0)
+#   const duration_pts    = duration_seconds * (c.duration.points_per_second ?? 0)
+#   const sound_pts       = c.sound[sound]?.points ?? 0
+#
+#   return mode_pts + image_pts + image_tail_pts + duration_pts + sound_pts
+# }
+#
+# 建議時機：
+#   - Model 切換後：重新 fetch config
+#   - 任何元件值變動時：重新執行 calculatePoints()（本地計算，無需再打 API）
+# ============================================================

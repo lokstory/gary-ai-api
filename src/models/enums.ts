@@ -1,6 +1,7 @@
 export enum OrderStatus {
   PENDING = 'PENDING',
   PAID = 'PAID',
+  FAILED = 'FAILED',
   CANCELLED = 'CANCELLED',
   COMPLETED = 'COMPLETED',
 }
@@ -38,4 +39,10 @@ export enum FileType {
 export enum MediaType {
   IMAGE = 'IMAGE',
   VIDEO = 'VIDEO',
+}
+
+export enum VideoSelectorType {
+  STYLE = 'STYLE',
+  MOVEMENT = 'MOVEMENT',
+  MOTION = 'MOTION',
 }

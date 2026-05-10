@@ -18,6 +18,8 @@ import { CategoryModule } from './modules/category/category.module';
 import { LocaleMiddleware } from './common/locale.middleware';
 import { WebModule } from './modules/web/web.module';
 import { KlingModule } from './modules/kling/kling.module';
+import { VideoSelectorModule } from './modules/video-selector/video-selector.module';
+import { AiVideoModelModule } from './modules/ai-video-model/ai-video-model.module';
 
 @Module({
   imports: [
@@ -35,6 +37,8 @@ import { KlingModule } from './modules/kling/kling.module';
     LabelModule,
     CategoryModule,
     KlingModule,
+    VideoSelectorModule,
+    AiVideoModelModule,
   ],
   controllers: [AppController, TestController],
   providers: [AppService],

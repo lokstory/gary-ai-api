@@ -1,0 +1,617 @@
+# ============================================================
+# 前台元件 × API Unit 對照參考表
+# 用途：後台管理員設定每個元件參數的平台點數時的依據
+# 說明：
+#   - api_units 為 Kling API 實際收費（1 unit = $0.14 USD）
+#   - platform_points 由後台自行定義，與 api_units 完全獨立
+#   - 此文件僅提供 api_units 做為校準參考
+#
+# 前台五個計費元件：
+#   [mode]       std / pro / 4k
+#   [image]      有無上傳首幀圖片
+#   [image_tail] 有無上傳尾幀圖片
+#   [duration]   秒數（整數）
+#   [sound]      on / off
+#
+# 平台點數計算公式（加法模型）：
+#   total_points =
+#     mode_points[mode]
+#     + image_points[has_value | empty]
+#     + image_tail_points[has_value | empty]
+#     + duration_seconds × duration_points_per_second
+#     + sound_points[on | off]
+# ============================================================
+
+metadata:
+  formula: additive
+  note: >
+    image 和 image_tail 在多數模型中不影響 Kling API 費率，
+    但平台可自行決定是否對這兩個功能加收平台點數（功能費）。
+    duration 在 per_task 模型僅支援 5s / 10s，
+    但平台可設計 per_second 點數讓 UI 顯示連續數值。
+
+# ============================================================
+models:
+
+  # ----------------------------------------------------------
+  # kling-video-o1
+  # Endpoint: /v1/videos/omni-video
+  # 計費方式: per_second
+  # ----------------------------------------------------------
+  kling-video-o1:
+    billing_type: per_second
+    api_formula: "total_units = units_per_second × duration"
+    supported_duration_range: [3, 10]   # 秒
+    supported_modes: [std, pro]
+
+    components_affecting_api_cost:
+      mode: true       # 直接改變 units/s
+      duration: true   # 乘數
+      sound: false     # 不影響此模型費率
+      image: false     # 不影響費率（omni 端 image_list 無計費效果）
+      image_tail: false
+
+    api_unit_reference:
+      # 基準：各 mode 在不同 duration 下的 api_units
+      # sound 對此模型無影響，以下數值適用 sound=on 及 sound=off
+      combinations:
+        - mode: std
+          units_per_second: 0.6
+          examples:
+            - duration_s: 5
+              total_units: 3.0
+              total_usd: "$0.42"
+            - duration_s: 10
+              total_units: 6.0
+              total_usd: "$0.84"
+
+        - mode: pro
+          units_per_second: 0.8
+          examples:
+            - duration_s: 5
+              total_units: 4.0
+              total_usd: "$0.56"
+            - duration_s: 10
+              total_units: 8.0
+              total_usd: "$1.12"
+
+    platform_design_notes:
+      mode: "pro 費率比 std 高 33%，建議 pro 點數 ≥ std × 1.33"
+      sound: "API 不收音效費，平台可視需求決定是否加收點數"
+      image: "API 不因有無首幀加費，平台可視需求決定是否加收功能點數"
+      image_tail: "API 不因有無尾幀加費，平台可視需求決定是否加收功能點數"
+      duration: "建議設定 per_second 點數，讓 UI 可顯示即時總點數"
+
+
+  # ----------------------------------------------------------
+  # kling-v3-omni
+  # Endpoint: /v1/videos/omni-video
+  # 計費方式: per_second
+  # ----------------------------------------------------------
+  kling-v3-omni:
+    billing_type: per_second
+    api_formula: "total_units = units_per_second × duration"
+    supported_duration_range: [3, 15]
+    supported_modes: [std, pro, "4k"]
+
+    components_affecting_api_cost:
+      mode: true
+      sound: true      # 影響此模型費率（4k 例外：on=off 費率相同）
+      duration: true
+      image: false
+      image_tail: false
+
+    api_unit_reference:
+      combinations:
+        - mode: std
+          sound: "off"
+          units_per_second: 0.6
+          examples:
+            - duration_s: 5
+              total_units: 3.0
+            - duration_s: 10
+              total_units: 6.0
+
+        - mode: std
+          sound: "on"
+          units_per_second: 0.8
+          sound_delta_per_second: +0.2    # 比 sound=off 多 0.2/s
+          examples:
+            - duration_s: 5
+              total_units: 4.0
+              sound_extra_units: +1.0     # 比 off 多 1.0u
+            - duration_s: 10
+              total_units: 8.0
+              sound_extra_units: +2.0
+
+        - mode: pro
+          sound: "off"
+          units_per_second: 0.8
+          examples:
+            - duration_s: 5
+              total_units: 4.0
+            - duration_s: 10
+              total_units: 8.0
+
+        - mode: pro
+          sound: "on"
+          units_per_second: 1.0
+          sound_delta_per_second: +0.2
+          examples:
+            - duration_s: 5
+              total_units: 5.0
+              sound_extra_units: +1.0
+            - duration_s: 10
+              total_units: 10.0
+              sound_extra_units: +2.0
+
+        - mode: "4k"
+          sound: "off"
+          units_per_second: 3.0
+          examples:
+            - duration_s: 5
+              total_units: 15.0
+            - duration_s: 10
+              total_units: 30.0
+
+        - mode: "4k"
+          sound: "on"
+          units_per_second: 3.0
+          sound_delta_per_second: 0      # 4k 模式 sound 不加費
+          examples:
+            - duration_s: 5
+              total_units: 15.0
+              sound_extra_units: 0
+            - duration_s: 10
+              total_units: 30.0
+              sound_extra_units: 0
+
+    platform_design_notes:
+      mode: "4k 費率為 std 的 5 倍，建議點數差距明顯"
+      sound: "std/pro 開啟音效多 0.2 units/s；4k 開啟音效不加費，但平台可自行決定"
+      image: "API 不因有無首幀加費"
+      image_tail: "API 不因有無尾幀加費"
+      duration: "支援 3~15 秒，建議設定 per_second 點數"
+
+
+  # ----------------------------------------------------------
+  # kling-v3
+  # Endpoints: /v1/videos/text2video, /v1/videos/image2video
+  # 計費方式: per_second
+  # ----------------------------------------------------------
+  kling-v3:
+    billing_type: per_second
+    api_formula: "total_units = units_per_second × duration"
+    supported_duration_range: [3, 15]
+    supported_modes: [std, pro, "4k"]
+
+    components_affecting_api_cost:
+      mode: true
+      sound: true      # 影響費率（4k 例外）
+      duration: true
+      image: false     # 不影響費率（text/image/start_end 三種情境費率相同）
+      image_tail: false
+
+    api_unit_reference:
+      combinations:
+        - mode: std
+          sound: "off"
+          units_per_second: 0.6
+          examples:
+            - duration_s: 5
+              total_units: 3.0
+            - duration_s: 10
+              total_units: 6.0
+
+        - mode: std
+          sound: "on"
+          units_per_second: 0.9
+          sound_delta_per_second: +0.3
+          examples:
+            - duration_s: 5
+              total_units: 4.5
+              sound_extra_units: +1.5
+            - duration_s: 10
+              total_units: 9.0
+              sound_extra_units: +3.0
+
+        - mode: pro
+          sound: "off"
+          units_per_second: 0.8
+          examples:
+            - duration_s: 5
+              total_units: 4.0
+            - duration_s: 10
+              total_units: 8.0
+
+        - mode: pro
+          sound: "on"
+          units_per_second: 1.2
+          sound_delta_per_second: +0.4
+          examples:
+            - duration_s: 5
+              total_units: 6.0
+              sound_extra_units: +2.0
+            - duration_s: 10
+              total_units: 12.0
+              sound_extra_units: +4.0
+
+        - mode: "4k"
+          sound: "off"
+          units_per_second: 3.0
+          examples:
+            - duration_s: 5
+              total_units: 15.0
+            - duration_s: 10
+              total_units: 30.0
+
+        - mode: "4k"
+          sound: "on"
+          units_per_second: 3.0
+          sound_delta_per_second: 0
+          examples:
+            - duration_s: 5
+              total_units: 15.0
+              sound_extra_units: 0
+
+    platform_design_notes:
+      mode: "4k 費率為 std 的 5 倍"
+      sound: "std 開音效多 0.3/s，pro 多 0.4/s；4k 不加費"
+      image: "API 不因有無首幀加費（text/image 費率相同）"
+      image_tail: "API 不因有無尾幀加費（start_end_frame 費率與標準相同）"
+      duration: "支援 3~15 秒，建議設定 per_second 點數"
+
+
+  # ----------------------------------------------------------
+  # kling-v2-6
+  # Endpoints: /v1/videos/text2video, /v1/videos/image2video
+  # 計費方式: per_task（fixed per 5s/10s）
+  # ----------------------------------------------------------
+  kling-v2-6:
+    billing_type: per_task
+    api_formula: "total_units = 查表固定值（by mode + duration + sound）"
+    supported_duration_options: ["5", "10"]   # 僅支援 5s 和 10s
+    supported_modes: [std, pro]
+
+    components_affecting_api_cost:
+      mode: true
+      duration: true
+      sound: true      # pro 模式影響費率；std 模式強制 off
+      image: false
+      image_tail: false
+
+    api_unit_reference:
+      note: "std 模式只能 sound=off；image/image_tail 有無不影響費率"
+      combinations:
+        - mode: std
+          duration: "5s"
+          sound: "off"
+          total_units: 1.5
+          total_usd: "$0.21"
+
+        - mode: std
+          duration: "10s"
+          sound: "off"
+          total_units: 3.0
+          total_usd: "$0.42"
+
+        - mode: pro
+          duration: "5s"
+          sound: "off"
+          total_units: 2.5
+          total_usd: "$0.35"
+
+        - mode: pro
+          duration: "10s"
+          sound: "off"
+          total_units: 5.0
+          total_usd: "$0.70"
+
+        - mode: pro
+          duration: "5s"
+          sound: "on"
+          total_units: 5.0
+          total_usd: "$0.70"
+          sound_extra_units: +2.5   # 比 sound=off 多
+
+        - mode: pro
+          duration: "10s"
+          sound: "on"
+          total_units: 10.0
+          total_usd: "$1.40"
+          sound_extra_units: +5.0
+
+    platform_design_notes:
+      mode: "pro/5s/off 為 std/5s/off 的 1.67 倍"
+      sound: "pro 開音效費率翻倍（2.5→5, 5→10）；std 不支援音效"
+      image: "API 不因有無首幀加費"
+      image_tail: "API 不因有無尾幀加費（start_end_frame 費率相同）"
+      duration: >
+        API 僅支援 5s / 10s 固定值。
+        建議平台 UI 仍允許選秒數，但 per_second 點數需按 5s=X、10s=2X 邏輯換算。
+
+
+  # ----------------------------------------------------------
+  # kling-v2-5-turbo
+  # Endpoints: /v1/videos/text2video, /v1/videos/image2video
+  # 計費方式: per_task
+  # ----------------------------------------------------------
+  kling-v2-5-turbo:
+    billing_type: per_task
+    api_formula: "total_units = 查表固定值（by mode + duration）"
+    supported_duration_options: ["5", "10"]
+    supported_modes: [std, pro]
+
+    components_affecting_api_cost:
+      mode: true
+      duration: true
+      sound: false
+      image: false
+      image_tail: false
+
+    api_unit_reference:
+      combinations:
+        - mode: std
+          duration: "5s"
+          total_units: 1.5
+          total_usd: "$0.21"
+        - mode: std
+          duration: "10s"
+          total_units: 3.0
+          total_usd: "$0.42"
+        - mode: pro
+          duration: "5s"
+          total_units: 2.5
+          total_usd: "$0.35"
+        - mode: pro
+          duration: "10s"
+          total_units: 5.0
+          total_usd: "$0.70"
+
+    platform_design_notes:
+      sound: "API 不收音效費，平台可自行決定"
+      image: "API 不因有無首幀加費"
+      image_tail: "API 不因有無尾幀加費（start_end_frame 費率相同）"
+
+
+  # ----------------------------------------------------------
+  # kling-v2-1
+  # Endpoint: /v1/videos/image2video（不支援 text2video）
+  # 計費方式: per_task
+  # ----------------------------------------------------------
+  kling-v2-1:
+    billing_type: per_task
+    api_formula: "total_units = 查表固定值（by mode + duration）"
+    supported_duration_options: ["5", "10"]
+    supported_modes: [std, pro]
+    note: "僅支援 image2video，image 欄位為必填"
+
+    components_affecting_api_cost:
+      mode: true
+      duration: true
+      sound: false
+      image: false     # 必填但不影響費率
+      image_tail: false
+
+    api_unit_reference:
+      combinations:
+        - mode: std
+          duration: "5s"
+          total_units: 2.0
+          total_usd: "$0.28"
+        - mode: std
+          duration: "10s"
+          total_units: 4.0
+          total_usd: "$0.56"
+        - mode: pro
+          duration: "5s"
+          total_units: 3.5
+          total_usd: "$0.49"
+        - mode: pro
+          duration: "10s"
+          total_units: 7.0
+          total_usd: "$0.98"
+
+    platform_design_notes:
+      image: "image 為必填，但有無圖片不影響 API 費率"
+      image_tail: "API 不因有無尾幀加費（start_end_frame 費率相同）"
+      sound: "API 不收音效費"
+
+
+  # ----------------------------------------------------------
+  # kling-v2-master
+  # Endpoints: /v1/videos/text2video, /v1/videos/image2video
+  # 計費方式: per_task，無 mode 區分
+  # ----------------------------------------------------------
+  kling-v2-master:
+    billing_type: per_task
+    api_formula: "total_units = 查表固定值（by duration，無 mode 區分）"
+    supported_duration_options: ["5", "10"]
+    supported_modes: []   # 無 mode 欄位
+    note: "不支援 start_end_frame"
+
+    components_affecting_api_cost:
+      mode: false      # 此模型無 mode 欄位
+      duration: true
+      sound: false
+      image: false
+      image_tail: false
+
+    api_unit_reference:
+      combinations:
+        - duration: "5s"
+          total_units: 10.0
+          total_usd: "$1.40"
+        - duration: "10s"
+          total_units: 20.0
+          total_usd: "$2.80"
+
+    platform_design_notes:
+      mode: "此模型無 mode 選項，mode 元件對此模型無作用（前台可隱藏或 disable）"
+      image: "API 不因有無首幀加費"
+      image_tail: "不支援尾幀（start_end_frame）"
+      sound: "API 不收音效費"
+
+
+  # ----------------------------------------------------------
+  # kling-v2-1-master
+  # Endpoints: /v1/videos/text2video, /v1/videos/image2video
+  # 計費方式: per_task，無 mode 區分
+  # ----------------------------------------------------------
+  kling-v2-1-master:
+    billing_type: per_task
+    api_formula: "total_units = 查表固定值（by duration，無 mode 區分）"
+    supported_duration_options: ["5", "10"]
+    supported_modes: []
+    note: "不支援 start_end_frame"
+
+    components_affecting_api_cost:
+      mode: false
+      duration: true
+      sound: false
+      image: false
+      image_tail: false
+
+    api_unit_reference:
+      combinations:
+        - duration: "5s"
+          total_units: 10.0
+          total_usd: "$1.40"
+        - duration: "10s"
+          total_units: 20.0
+          total_usd: "$2.80"
+
+    platform_design_notes:
+      mode: "此模型無 mode 選項，前台可隱藏或 disable mode 元件"
+      image_tail: "不支援尾幀"
+      sound: "API 不收音效費"
+
+
+  # ----------------------------------------------------------
+  # kling-v1-6
+  # Endpoints: /v1/videos/text2video, /v1/videos/image2video
+  # 計費方式: per_task
+  # ----------------------------------------------------------
+  kling-v1-6:
+    billing_type: per_task
+    api_formula: "total_units = 查表固定值（by mode + duration）"
+    supported_duration_options: ["5", "10"]
+    supported_modes: [std, pro]
+
+    components_affecting_api_cost:
+      mode: true
+      duration: true
+      sound: false
+      image: false
+      image_tail: false
+
+    api_unit_reference:
+      combinations:
+        - mode: std
+          duration: "5s"
+          total_units: 2.0
+          total_usd: "$0.28"
+        - mode: std
+          duration: "10s"
+          total_units: 4.0
+          total_usd: "$0.56"
+        - mode: pro
+          duration: "5s"
+          total_units: 3.5
+          total_usd: "$0.49"
+        - mode: pro
+          duration: "10s"
+          total_units: 7.0
+          total_usd: "$0.98"
+
+    platform_design_notes:
+      sound: "API 不收音效費"
+      image: "API 不因有無首幀加費"
+      image_tail: "API 不因有無尾幀加費（start_end_frame 費率相同）"
+
+
+  # ----------------------------------------------------------
+  # kling-v1-5
+  # Endpoint: /v1/videos/image2video（不支援 text2video）
+  # 計費方式: per_task
+  # ----------------------------------------------------------
+  kling-v1-5:
+    billing_type: per_task
+    api_formula: "total_units = 查表固定值（by mode + duration）"
+    supported_duration_options: ["5", "10"]
+    supported_modes: [std, pro]
+    note: "僅支援 image2video，image 欄位為必填"
+
+    components_affecting_api_cost:
+      mode: true
+      duration: true
+      sound: false
+      image: false
+      image_tail: false
+
+    api_unit_reference:
+      combinations:
+        - mode: std
+          duration: "5s"
+          total_units: 2.0
+          total_usd: "$0.28"
+        - mode: std
+          duration: "10s"
+          total_units: 4.0
+          total_usd: "$0.56"
+        - mode: pro
+          duration: "5s"
+          total_units: 3.5
+          total_usd: "$0.49"
+        - mode: pro
+          duration: "10s"
+          total_units: 7.0
+          total_usd: "$0.98"
+
+    platform_design_notes:
+      image: "image 為必填，但不影響費率"
+      image_tail: "API 不因有無尾幀加費（start_end_frame 費率相同）"
+      sound: "API 不收音效費"
+
+
+  # ----------------------------------------------------------
+  # kling-v1
+  # Endpoints: /v1/videos/text2video, /v1/videos/image2video
+  # 計費方式: per_task
+  # ----------------------------------------------------------
+  kling-v1:
+    billing_type: per_task
+    api_formula: "total_units = 查表固定值（by mode + duration）"
+    supported_duration_options: ["5", "10"]
+    supported_modes: [std, pro]
+
+    components_affecting_api_cost:
+      mode: true
+      duration: true
+      sound: false
+      image: false
+      image_tail: false
+
+    api_unit_reference:
+      combinations:
+        - mode: std
+          duration: "5s"
+          total_units: 1.0
+          total_usd: "$0.14"
+        - mode: std
+          duration: "10s"
+          total_units: 2.0
+          total_usd: "$0.28"
+        - mode: pro
+          duration: "5s"
+          total_units: 3.5
+          total_usd: "$0.49"
+        - mode: pro
+          duration: "10s"
+          total_units: 7.0
+          total_usd: "$0.98"
+
+    platform_design_notes:
+      sound: "API 不收音效費"
+      image: "API 不因有無首幀加費（text/image 費率相同）"
+      image_tail: "API 不因有無尾幀加費（start_end_frame 費率相同）"

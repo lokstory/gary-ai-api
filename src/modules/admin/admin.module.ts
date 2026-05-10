@@ -18,10 +18,8 @@ import { AdminCmsController } from './admin-cms.controller';
           config.get<string>('ADMIN_JWT_SECRET') ??
           config.getOrThrow('JWT_SECRET'),
         signOptions: {
-          expiresIn: (
-            config.get<string>('ADMIN_JWT_EXPIRES_IN') ??
-            config.getOrThrow<string>('JWT_EXPIRES_IN')
-          ) as any,
+          expiresIn: (config.get<string>('ADMIN_JWT_EXPIRES_IN') ??
+            config.getOrThrow<string>('JWT_EXPIRES_IN')) as any,
         },
       }),
     }),

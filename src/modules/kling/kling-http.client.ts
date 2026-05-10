@@ -58,7 +58,9 @@ export class KlingHttpClient {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unknown Kling API error';
-      this.logger.error(`Kling API request failed: ${method} ${url} - ${message}`);
+      this.logger.error(
+        `Kling API request failed: ${method} ${url} - ${message}`,
+      );
       throw new InternalServerErrorException('Kling API request failed');
     }
 

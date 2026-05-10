@@ -23,6 +23,7 @@ export const AppCode = {
   CREDENTIAL_INVALID: [1009, 'Invalid credential'] as const,
   OTP_RATE_LIMITED: [1010, 'OTP rate limited'] as const,
   USER_NOT_EXISTS: [1011, 'Unable to process this request'] as const,
+  VERIFICATION_UNAVAILABLE: [1012, 'Verification unavailable'] as const,
 } as const;
 
 export type AppCodeKey = keyof typeof AppCode;

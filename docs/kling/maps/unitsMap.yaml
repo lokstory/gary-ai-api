@@ -1,0 +1,671 @@
+# ============================================================
+# Kling AI - API 欄位值 → Units 消耗對照表
+# 整理原則：
+#   - 看 API 欄位就能直接查出要扣多少 units
+#   - 分兩個 endpoint 群組：omni-video / text2video+image2video
+# 1 unit = $0.14 USD
+# ============================================================
+
+# ============================================================
+# 欄位判斷邏輯說明
+# ============================================================
+# omni-video 端：
+#   video_list 為空 ([] 或未傳)  → video_list: empty
+#   video_list 有值              → video_list: has_value
+#   (image_list 有無值不影響此維度的計費)
+#
+# text2video / image2video 端：
+#   image 無值, image_tail 無值  → scenario: text_to_video
+#   image 有值, image_tail 無值  → scenario: image_to_video
+#   image 有值, image_tail 有值  → scenario: image_to_video_start_end_frame
+#   dynamic_masks 或 static_mask 有值 → scenario: motion_control (覆蓋上述)
+#   element_list 有值 (kling-v1-6) → scenario: multi_elements (覆蓋上述)
+#
+# sound / voice_list：
+#   sound: "off"                → no audio
+#   sound: "on", voice_list 為空 → with audio, no voice control
+#   sound: "on", voice_list 有值 → with audio + voice control
+# ============================================================
+
+endpoints:
+
+  # ==========================================================
+  # ENDPOINT 1: POST /v1/videos/omni-video
+  # 對應模型: kling-video-o1, kling-v3-omni
+  # 計費方式: 按秒 (units_per_second × duration)
+  # 關鍵欄位: model_name, mode, video_list, sound, duration
+  # ==========================================================
+  omni_video:
+    path: /v1/videos/omni-video
+    billing_type: per_second
+    cost_formula: "total_units = units_per_second × duration"
+
+    models:
+
+      kling-video-o1:
+        # sound 不影響費率；video_list 有值時 sound 強制為 off
+        units_lookup:
+          - mode: std
+            video_list: empty
+            sound: any
+            units_per_second: 0.6
+            price_per_second: "$0.084"
+
+          - mode: std
+            video_list: has_value
+            sound: any
+            units_per_second: 0.9
+            price_per_second: "$0.126"
+
+          - mode: pro
+            video_list: empty
+            sound: any
+            units_per_second: 0.8
+            price_per_second: "$0.112"
+
+          - mode: pro
+            video_list: has_value
+            sound: any
+            units_per_second: 1.2
+            price_per_second: "$0.168"
+
+      kling-v3-omni:
+        # video_list 有值時 sound 強制為 off；4k 不支援 video_list
+        units_lookup:
+          - mode: std
+            video_list: empty
+            sound: "off"
+            units_per_second: 0.6
+            price_per_second: "$0.084"
+
+          - mode: std
+            video_list: empty
+            sound: "on"
+            units_per_second: 0.8
+            price_per_second: "$0.112"
+
+          - mode: std
+            video_list: has_value
+            sound: "off"
+            units_per_second: 0.9
+            price_per_second: "$0.126"
+
+          - mode: pro
+            video_list: empty
+            sound: "off"
+            units_per_second: 0.8
+            price_per_second: "$0.112"
+
+          - mode: pro
+            video_list: empty
+            sound: "on"
+            units_per_second: 1.0
+            price_per_second: "$0.14"
+
+          - mode: pro
+            video_list: has_value
+            sound: "off"
+            units_per_second: 1.2
+            price_per_second: "$0.168"
+
+          - mode: "4k"
+            video_list: empty
+            sound: "off"
+            units_per_second: 3.0
+            price_per_second: "$0.42"
+
+          - mode: "4k"
+            video_list: empty
+            sound: "on"
+            units_per_second: 3.0
+            price_per_second: "$0.42"
+
+  # ==========================================================
+  # ENDPOINT 2: POST /v1/videos/text2video
+  #             POST /v1/videos/image2video
+  # 對應模型: kling-v3, kling-v2-6, kling-v2-5-turbo,
+  #           kling-v2-1, kling-v2-master, kling-v2-1-master,
+  #           kling-v1-6, kling-v1-5, kling-v1
+  # 關鍵欄位: model_name, mode, duration,
+  #           image, image_tail, sound, voice_list,
+  #           dynamic_masks, static_mask, element_list
+  # ==========================================================
+  text_and_image_to_video:
+    paths:
+      - /v1/videos/text2video
+      - /v1/videos/image2video
+
+    models:
+
+      # --------------------------------------------------------
+      # kling-v3
+      # 計費方式: 按秒 (units_per_second × duration)
+      # text_to_video / image_to_video / start_end_frame 費率相同
+      # motion_control (dynamic_masks 或 static_mask 有值) 另計
+      # --------------------------------------------------------
+      kling-v3:
+        billing_type: per_second
+        cost_formula: "total_units = units_per_second × duration"
+
+        standard:
+          note: "適用 text_to_video、image_to_video、start_end_frame 三種情境"
+          units_lookup:
+            - mode: std
+              sound: "off"
+              units_per_second: 0.6
+              price_per_second: "$0.084"
+
+            - mode: std
+              sound: "on"
+              voice_list: empty
+              units_per_second: 0.9
+              price_per_second: "$0.126"
+
+            - mode: pro
+              sound: "off"
+              units_per_second: 0.8
+              price_per_second: "$0.112"
+
+            - mode: pro
+              sound: "on"
+              voice_list: empty
+              units_per_second: 1.2
+              price_per_second: "$0.168"
+
+            - mode: "4k"
+              sound: "off"
+              units_per_second: 3.0
+              price_per_second: "$0.42"
+
+            - mode: "4k"
+              sound: "on"
+              units_per_second: 3.0
+              price_per_second: "$0.42"
+
+        motion_control:
+          note: "dynamic_masks 或 static_mask 有值時改用此費率"
+          units_lookup:
+            - mode: std
+              units_per_second: 0.9
+              price_per_second: "$0.126"
+
+            - mode: pro
+              units_per_second: 1.2
+              price_per_second: "$0.168"
+
+      # --------------------------------------------------------
+      # kling-v2-6
+      # 計費方式: 按任務固定 (5s / 10s 兩檔)
+      # motion_control 例外：按秒計費
+      # std 模式只能 sound=off
+      # --------------------------------------------------------
+      kling-v2-6:
+        billing_type: per_task
+
+        text_to_video_and_image_to_video:
+          note: "純文字 或 image 有值無 image_tail"
+          units_lookup:
+            - mode: std
+              duration: "5"
+              sound: "off"
+              units: 1.5
+              price: "$0.21"
+
+            - mode: std
+              duration: "10"
+              sound: "off"
+              units: 3
+              price: "$0.42"
+
+            - mode: pro
+              duration: "5"
+              sound: "off"
+              units: 2.5
+              price: "$0.35"
+
+            - mode: pro
+              duration: "10"
+              sound: "off"
+              units: 5
+              price: "$0.70"
+
+            - mode: pro
+              duration: "5"
+              sound: "on"
+              voice_list: empty
+              units: 5
+              price: "$0.70"
+
+            - mode: pro
+              duration: "10"
+              sound: "on"
+              voice_list: empty
+              units: 10
+              price: "$1.40"
+
+            - mode: pro
+              duration: "5"
+              sound: "on"
+              voice_list: has_value
+              units: 6
+              price: "$0.84"
+
+            - mode: pro
+              duration: "10"
+              sound: "on"
+              voice_list: has_value
+              units: 12
+              price: "$1.68"
+
+        image_to_video_start_end_frame:
+          note: "image 有值 且 image_tail 有值"
+          units_lookup:
+            - mode: pro
+              duration: "5"
+              sound: "off"
+              units: 2.5
+              price: "$0.35"
+
+            - mode: pro
+              duration: "10"
+              sound: "off"
+              units: 5
+              price: "$0.70"
+
+            - mode: pro
+              duration: "5"
+              sound: "on"
+              voice_list: empty
+              units: 5
+              price: "$0.70"
+
+            - mode: pro
+              duration: "10"
+              sound: "on"
+              voice_list: empty
+              units: 10
+              price: "$1.40"
+
+            - mode: pro
+              duration: "5"
+              sound: "on"
+              voice_list: has_value
+              units: 6
+              price: "$0.84"
+
+            - mode: pro
+              duration: "10"
+              sound: "on"
+              voice_list: has_value
+              units: 12
+              price: "$1.68"
+
+        motion_control:
+          billing_type: per_second
+          note: "dynamic_masks 或 static_mask 有值時改用此費率，按秒計費"
+          cost_formula: "total_units = units_per_second × duration"
+          units_lookup:
+            - mode: std
+              units_per_second: 0.5
+              price_per_second: "$0.07"
+
+            - mode: pro
+              units_per_second: 0.8
+              price_per_second: "$0.112"
+
+      # --------------------------------------------------------
+      # kling-v2-5-turbo
+      # 計費方式: 按任務固定
+      # --------------------------------------------------------
+      kling-v2-5-turbo:
+        billing_type: per_task
+
+        text_to_video_and_image_to_video:
+          note: "純文字 或 image 有值無 image_tail"
+          units_lookup:
+            - mode: std
+              duration: "5"
+              units: 1.5
+              price: "$0.21"
+
+            - mode: std
+              duration: "10"
+              units: 3
+              price: "$0.42"
+
+            - mode: pro
+              duration: "5"
+              units: 2.5
+              price: "$0.35"
+
+            - mode: pro
+              duration: "10"
+              units: 5
+              price: "$0.70"
+
+        image_to_video_start_end_frame:
+          note: "image 有值 且 image_tail 有值"
+          units_lookup:
+            - mode: pro
+              duration: "5"
+              units: 2.5
+              price: "$0.35"
+
+            - mode: pro
+              duration: "10"
+              units: 5
+              price: "$0.70"
+
+      # --------------------------------------------------------
+      # kling-v2-1
+      # 計費方式: 按任務固定
+      # 僅支援 image2video（不支援 text2video）
+      # --------------------------------------------------------
+      kling-v2-1:
+        billing_type: per_task
+
+        image_to_video:
+          note: "image 有值，無 image_tail"
+          units_lookup:
+            - mode: std
+              duration: "5"
+              units: 2
+              price: "$0.28"
+
+            - mode: std
+              duration: "10"
+              units: 4
+              price: "$0.56"
+
+            - mode: pro
+              duration: "5"
+              units: 3.5
+              price: "$0.49"
+
+            - mode: pro
+              duration: "10"
+              units: 7
+              price: "$0.98"
+
+        image_to_video_start_end_frame:
+          note: "image 有值 且 image_tail 有值"
+          units_lookup:
+            - mode: pro
+              duration: "5"
+              units: 3.5
+              price: "$0.49"
+
+            - mode: pro
+              duration: "10"
+              units: 7
+              price: "$0.98"
+
+      # --------------------------------------------------------
+      # kling-v2-master
+      # 計費方式: 按任務固定，無 mode 欄位
+      # 不支援 start/end frame
+      # --------------------------------------------------------
+      kling-v2-master:
+        billing_type: per_task
+        note: "無 mode 欄位；不支援 start/end frame"
+
+        text_to_video_and_image_to_video:
+          units_lookup:
+            - duration: "5"
+              units: 10
+              price: "$1.40"
+
+            - duration: "10"
+              units: 20
+              price: "$2.80"
+
+      # --------------------------------------------------------
+      # kling-v2-1-master
+      # 計費方式: 按任務固定，無 mode 欄位
+      # 不支援 start/end frame
+      # --------------------------------------------------------
+      kling-v2-1-master:
+        billing_type: per_task
+        note: "無 mode 欄位；不支援 start/end frame"
+
+        text_to_video_and_image_to_video:
+          units_lookup:
+            - duration: "5"
+              units: 10
+              price: "$1.40"
+
+            - duration: "10"
+              units: 20
+              price: "$2.80"
+
+      # --------------------------------------------------------
+      # kling-v1-6
+      # 計費方式: 按任務固定
+      # element_list 有值時切換至 multi_elements 費率
+      # --------------------------------------------------------
+      kling-v1-6:
+        billing_type: per_task
+
+        text_to_video_and_image_to_video:
+          note: "純文字 或 image 有值無 image_tail，且 element_list 為空"
+          units_lookup:
+            - mode: std
+              duration: "5"
+              units: 2
+              price: "$0.28"
+
+            - mode: std
+              duration: "10"
+              units: 4
+              price: "$0.56"
+
+            - mode: pro
+              duration: "5"
+              units: 3.5
+              price: "$0.49"
+
+            - mode: pro
+              duration: "10"
+              units: 7
+              price: "$0.98"
+
+        image_to_video_start_end_frame:
+          note: "image 有值 且 image_tail 有值"
+          units_lookup:
+            - mode: pro
+              duration: "5"
+              units: 3.5
+              price: "$0.49"
+
+            - mode: pro
+              duration: "10"
+              units: 7
+              price: "$0.98"
+
+        multi_elements:
+          note: "element_list 有值時套用此費率（優先於其他情境）"
+          units_lookup:
+            - mode: std
+              duration: "5"
+              units: 3
+              price: "$0.42"
+
+            - mode: std
+              duration: "10"
+              units: 6
+              price: "$0.84"
+
+            - mode: pro
+              duration: "5"
+              units: 5
+              price: "$0.70"
+
+            - mode: pro
+              duration: "10"
+              units: 10
+              price: "$1.40"
+
+        video_extension:
+          units_lookup:
+            - mode: std
+              units: 2
+              price: "$0.28"
+
+            - mode: pro
+              units: 3.5
+              price: "$0.49"
+
+      # --------------------------------------------------------
+      # kling-v1-5
+      # 計費方式: 按任務固定
+      # 僅支援 image2video（不支援 text2video）
+      # --------------------------------------------------------
+      kling-v1-5:
+        billing_type: per_task
+
+        image_to_video:
+          note: "image 有值，無 image_tail"
+          units_lookup:
+            - mode: std
+              duration: "5"
+              units: 2
+              price: "$0.28"
+
+            - mode: std
+              duration: "10"
+              units: 4
+              price: "$0.56"
+
+            - mode: pro
+              duration: "5"
+              units: 3.5
+              price: "$0.49"
+
+            - mode: pro
+              duration: "10"
+              units: 7
+              price: "$0.98"
+
+        image_to_video_start_end_frame:
+          note: "image 有值 且 image_tail 有值"
+          units_lookup:
+            - mode: pro
+              duration: "5"
+              units: 3.5
+              price: "$0.49"
+
+            - mode: pro
+              duration: "10"
+              units: 7
+              price: "$0.98"
+
+        motion_brush_or_camera_control:
+          note: "dynamic_masks / static_mask / camera_control 有值時"
+          units_lookup:
+            - mode: pro
+              duration: "5"
+              units: 3.5
+              price: "$0.49"
+
+        video_extension:
+          units_lookup:
+            - mode: std
+              units: 2
+              price: "$0.28"
+
+            - mode: pro
+              units: 3.5
+              price: "$0.49"
+
+      # --------------------------------------------------------
+      # kling-v1
+      # 計費方式: 按任務固定
+      # --------------------------------------------------------
+      kling-v1:
+        billing_type: per_task
+
+        text_to_video_and_image_to_video:
+          note: "純文字 或 image 有值無 image_tail"
+          units_lookup:
+            - mode: std
+              duration: "5"
+              units: 1
+              price: "$0.14"
+
+            - mode: std
+              duration: "10"
+              units: 2
+              price: "$0.28"
+
+            - mode: pro
+              duration: "5"
+              units: 3.5
+              price: "$0.49"
+
+            - mode: pro
+              duration: "10"
+              units: 7
+              price: "$0.98"
+
+        image_to_video_start_end_frame:
+          note: "image 有值 且 image_tail 有值"
+          units_lookup:
+            - mode: std
+              duration: "5"
+              units: 1
+              price: "$0.14"
+
+        text_to_video_camera_control:
+          note: "camera_control 有值（僅限 text2video）"
+          units_lookup:
+            - mode: std
+              duration: "5"
+              units: 1
+              price: "$0.14"
+
+        motion_brush:
+          note: "dynamic_masks 或 static_mask 有值時"
+          units_lookup:
+            - mode: pro
+              duration: "5"
+              units: 3.5
+              price: "$0.49"
+
+        video_extension:
+          units_lookup:
+            - mode: std
+              units: 1
+              price: "$0.14"
+
+            - mode: pro
+              units: 3.5
+              price: "$0.49"
+
+# ============================================================
+# 費率判斷優先順序 (AI 決策樹)
+# ============================================================
+decision_tree:
+  step_1: "確認 model_name → 選擇對應模型區段"
+  step_2: "確認使用哪個 endpoint (omni_video / text_and_image_to_video)"
+
+  for_omni_video:
+    step_3: "video_list 是否有值？→ 決定 with/no video 維度"
+    step_4: "sound 是否為 on？→ 決定 audio 維度 (kling-v3-omni 才有此維度)"
+    step_5: "查 mode + video_list + sound → 得到 units_per_second"
+    step_6: "total_units = units_per_second × duration"
+
+  for_text_and_image_to_video:
+    step_3_scenario_priority:
+      P1: "element_list 有值 → multi_elements 費率（僅 kling-v1-6）"
+      P2: "dynamic_masks 或 static_mask 有值 → motion_control 費率"
+      P3: "image_tail 有值 → image_to_video_start_end_frame 費率"
+      P4: "image 有值, image_tail 無值 → image_to_video 費率"
+      P5: "image 無值 → text_to_video 費率"
+    step_4: "查 mode + duration (+ sound / voice_list 若適用) → 得到 units"
+    step_5:
+      per_second_models:
+        models: [kling-v3]
+        formula: "total_units = units_per_second × duration"
+      per_task_models:
+        models: [kling-v2-6, kling-v2-5-turbo, kling-v2-1, kling-v2-master, kling-v2-1-master, kling-v1-6, kling-v1-5, kling-v1]
+        formula: "total_units = 查表固定值"

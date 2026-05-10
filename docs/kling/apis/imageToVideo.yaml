@@ -1,0 +1,519 @@
+openapi: 3.0.0
+info:
+  title: Kling AI - Image to Video API
+  version: v1
+  base_url: https://api-singapore.klingai.com
+  description: >
+    Kling AI 圖片轉影片 API，支援首幀/尾幀控制、動態遮罩（Motion Brush）、
+    靜態遮罩、鏡頭運動控制、多鏡頭模式、音效生成、Element 元素引用及語音合成等功能。
+    所有請求需在 Header 帶入 Bearer Token 進行認證。
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    TaskStatus:
+      type: string
+      enum: [submitted, processing, succeed, failed]
+      description: 任務狀態
+
+    VideoResult:
+      type: object
+      properties:
+        id:
+          type: string
+          description: 生成影片的全域唯一 ID
+        url:
+          type: string
+          description: 影片下載 URL（30 天後自動清除，請及時儲存）
+        watermark_url:
+          type: string
+          description: 含浮水印的影片下載 URL（防盜鏈格式）
+        duration:
+          type: string
+          description: 影片總時長，單位：秒
+
+    TaskData:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: 系統生成的任務 ID
+        task_status:
+          $ref: "#/components/schemas/TaskStatus"
+        task_status_msg:
+          type: string
+          description: 任務狀態說明，失敗時顯示失敗原因（如觸發內容風控等）
+        task_info:
+          type: object
+          properties:
+            external_task_id:
+              type: string
+              description: 使用者自訂任務 ID
+        task_result:
+          type: object
+          properties:
+            videos:
+              type: array
+              items:
+                $ref: "#/components/schemas/VideoResult"
+        watermark_info:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+        final_unit_deduction:
+          type: string
+          description: 本次任務扣除的計費單位
+        created_at:
+          type: integer
+          format: int64
+          description: 任務建立時間（Unix 時間戳，毫秒）
+        updated_at:
+          type: integer
+          format: int64
+          description: 任務最後更新時間（Unix 時間戳，毫秒）
+
+    TrajectoryPoint:
+      type: object
+      required: [x, y]
+      description: 動態遮罩的軌跡座標點（以圖片左下角為原點）
+      properties:
+        x:
+          type: integer
+          description: X 軸座標（像素）
+        y:
+          type: integer
+          description: Y 軸座標（像素）
+
+    DynamicMaskItem:
+      type: object
+      required: [mask, trajectories]
+      description: 單一動態遮罩配置
+      properties:
+        mask:
+          type: string
+          description: >
+            動態筆刷遮罩圖片（Base64 或 URL）。
+            格式：.jpg / .jpeg / .png，需與 image 欄位的寬高比一致。
+            與 static_mask 的解析度必須相同。
+        trajectories:
+          type: array
+          description: >
+            運動軌跡座標序列。
+            5 秒影片最多 77 個座標點，範圍 [2, 77]。
+            座標順序即運動方向，第一個為起點。
+            2 個點 = 直線運動；點越多軌跡越精確。
+          items:
+            $ref: "#/components/schemas/TrajectoryPoint"
+
+    CameraConfig:
+      type: object
+      description: >
+        鏡頭移動細部參數，僅當 camera_control.type = simple 時使用。
+        6 個參數中只能有 1 個非零值，其餘必須為 0。
+      properties:
+        horizontal:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 水平平移（負=左移，正=右移）
+        vertical:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 垂直平移（負=下移，正=上移）
+        pan:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 水平旋轉（負=左轉，正=右轉）
+        tilt:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 垂直旋轉（負=俯仰下，正=俯仰上）
+        roll:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 滾轉（負=逆時針，正=順時針）
+        zoom:
+          type: number
+          minimum: -10
+          maximum: 10
+          description: 焦距縮放（負=縮小視野/長焦，正=擴大視野/廣角）
+
+    CameraControl:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum:
+            [
+              simple,
+              down_back,
+              forward_up,
+              right_turn_forward,
+              left_turn_forward,
+            ]
+          description: >
+            預設鏡頭運動類型：
+            simple = 自訂簡單運動（需搭配 config）；
+            down_back = 下降後退（Pan down + zoom out）；
+            forward_up = 前進仰拍（Zoom in + pan up）；
+            right_turn_forward = 右轉前進；
+            left_turn_forward = 左轉前進。
+            除 simple 外，config 不需填寫。
+        config:
+          $ref: "#/components/schemas/CameraConfig"
+
+    MultiPromptItem:
+      type: object
+      required: [index, prompt, duration]
+      properties:
+        index:
+          type: integer
+          description: 鏡頭序號（從 1 開始）
+        prompt:
+          type: string
+          maxLength: 512
+          description: 該鏡頭的正向提示詞
+        duration:
+          type: string
+          description: 該鏡頭時長（秒），不可超過總時長，最少 1 秒
+
+    ElementItem:
+      type: object
+      required: [element_id]
+      properties:
+        element_id:
+          type: integer
+          format: int64
+          description: 元素庫中的元素 ID
+
+    VoiceItem:
+      type: object
+      required: [voice_id]
+      properties:
+        voice_id:
+          type: string
+          description: >
+            語音 ID，來自語音自訂 API 回傳值或系統預設語音。
+            不可使用 voice_list 名稱本身作為 voice_id。
+
+    CreateTaskRequest:
+      type: object
+      description: >
+        建立圖片轉影片任務的請求體。
+        image 與 image_tail 至少填寫一個，不可同時為空。
+        image_tail、dynamic_masks/static_mask、camera_control 三者互斥，只能擇一使用。
+        element_list 與 voice_list 互斥，不可同時使用。
+      properties:
+        model_name:
+          type: string
+          default: kling-v1
+          enum:
+            - kling-v1
+            - kling-v1-5
+            - kling-v1-6
+            - kling-v2-master
+            - kling-v2-1
+            - kling-v2-1-master
+            - kling-v2-5-turbo
+            - kling-v2-6
+            - kling-v3
+          description: 指定呼叫的模型版本（舊欄位 model 仍相容，預設呼叫 v1）
+        image:
+          type: string
+          description: >
+            參考圖片（首幀）。支援 Base64 字串或圖片 URL（需可公開存取）。
+            Base64 格式：僅傳原始 Base64 字串，不加 data:image/png;base64, 前綴。
+            支援格式：.jpg / .jpeg / .png。
+            限制：檔案大小 ≤10MB，最小邊長 300px，寬高比 1:2.5 ~ 2.5:1。
+        image_tail:
+          type: string
+          description: >
+            參考圖片（尾幀控制）。支援 Base64 字串或圖片 URL。
+            Base64 格式：僅傳原始 Base64 字串，不加前綴。
+            支援格式：.jpg / .jpeg / .png。
+            限制：檔案大小 ≤10MB，最小邊長 300px。
+            與 dynamic_masks / static_mask / camera_control 互斥。
+        multi_shot:
+          type: boolean
+          default: false
+          description: >
+            是否啟用多鏡頭模式。
+            true：prompt 失效；
+            false：shot_type 與 multi_prompt 失效。
+        shot_type:
+          type: string
+          enum: [customize, intelligence]
+          description: 分鏡方式。multi_shot=true 時必填。
+        multi_prompt:
+          type: array
+          maxItems: 6
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/MultiPromptItem"
+          description: >
+            多鏡頭提示詞列表。multi_shot=true 且 shot_type=customize 時必填。
+            最多 6 個鏡頭，最少 1 個。
+            所有鏡頭時長之和須等於頂層 duration 總時長。
+        prompt:
+          type: string
+          maxLength: 2500
+          description: >
+            正向文字提示詞。
+            multi_shot=false 或 shot_type=intelligence 時不可為空。
+            支援 <<<element_1>>>、<<<image_1>>>、<<<video_1>>>、<<<voice_1>>> 格式引用資源。
+            使用 voice_list 且 prompt 引用 voice ID 時，計費為「含指定語音生成」。
+        negative_prompt:
+          type: string
+          maxLength: 2500
+          description: 負向文字提示詞，建議以正向提示詞中的否定句補充
+        element_list:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/ElementItem"
+          description: >
+            參考元素列表，基於元素庫中的 element_id。
+            最多 3 個元素。
+            與 voice_list 互斥。
+        voice_list:
+          type: array
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/VoiceItem"
+          description: >
+            生成影片時引用的語音列表，最多 2 個。
+            使用時 sound 參數必須為 on。
+            與 element_list 互斥。
+        sound:
+          type: string
+          default: "off"
+          enum: ["on", "off"]
+          description: 是否同步生成音效。使用 voice_list 時必須設為 on。
+        cfg_scale:
+          type: number
+          default: 0.5
+          minimum: 0
+          maximum: 1
+          description: >
+            生成自由度，值越大模型自由度越小（與輸入的相關性越強）。
+            kling-v2.x 系列不支援此參數。
+        mode:
+          type: string
+          default: std
+          enum: [std, pro, "4k"]
+          description: >
+            影片生成模式：
+            std = 標準模式（720P，低成本）；
+            pro = 專業模式（1080P，高品質）；
+            4k = 4K 模式（最高品質）。
+        static_mask:
+          type: string
+          description: >
+            靜態筆刷遮罩圖片（Motion Brush 的靜態區域）。
+            支援 Base64 或 URL（格式需求同 image 欄位）。
+            格式：.jpg / .jpeg / .png。
+            寬高比須與 image 欄位一致，否則任務失敗。
+            與 static_mask 和 dynamic_masks.mask 的解析度必須相同。
+            與 image_tail / camera_control 互斥。
+        dynamic_masks:
+          type: array
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/DynamicMaskItem"
+          description: >
+            動態筆刷配置列表（Motion Brush 的動態區域）。
+            最多 6 組，每組包含遮罩圖片與運動軌跡。
+            與 image_tail / camera_control 互斥。
+        camera_control:
+          $ref: "#/components/schemas/CameraControl"
+          description: >
+            鏡頭運動控制。未指定時模型依輸入自動判斷。
+            與 image_tail / dynamic_masks / static_mask 互斥。
+        duration:
+          type: string
+          default: "5"
+          enum:
+            [
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9",
+              "10",
+              "11",
+              "12",
+              "13",
+              "14",
+              "15",
+            ]
+          description: 影片時長（秒）。各模型支援範圍不同，請參考官方 Capability Map。
+        watermark_info:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+          description: 是否同步生成含浮水印的影片。不支援自訂浮水印。
+        callback_url:
+          type: string
+          format: uri
+          description: 任務狀態變更時的回調通知 URL，詳見 Callback Protocol。
+        external_task_id:
+          type: string
+          description: 使用者自訂任務 ID，同帳號下須唯一，不覆蓋系統 task_id，可用於查詢。
+
+paths:
+  /v1/videos/image2video:
+    post:
+      summary: 建立圖片轉影片任務
+      operationId: createImageToVideoTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+            example:
+              model_name: kling-v2-6
+              image: "https://example.com/input.jpg"
+              prompt: "The character walks forward slowly"
+              duration: "5"
+              mode: pro
+              sound: "off"
+      responses:
+        "200":
+          description: 任務建立成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    description: 錯誤碼（0 = 成功）
+                  message:
+                    type: string
+                  request_id:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      task_id:
+                        type: string
+                      task_info:
+                        type: object
+                        properties:
+                          external_task_id:
+                            type: string
+                      task_status:
+                        $ref: "#/components/schemas/TaskStatus"
+                      created_at:
+                        type: integer
+                        format: int64
+                      updated_at:
+                        type: integer
+                        format: int64
+
+    get:
+      summary: 查詢圖片轉影片任務列表
+      operationId: listImageToVideoTasks
+      parameters:
+        - name: pageNum
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+            maximum: 1000
+          description: 頁碼
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 500
+          description: 每頁筆數
+      responses:
+        "200":
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  message:
+                    type: string
+                  request_id:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TaskData"
+
+  /v1/videos/image2video/{id}:
+    get:
+      summary: 查詢單一圖片轉影片任務狀態與結果
+      operationId: getImageToVideoTask
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 填入 task_id 或 external_task_id（二擇一）
+      responses:
+        "200":
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  message:
+                    type: string
+                  request_id:
+                    type: string
+                  data:
+                    $ref: "#/components/schemas/TaskData"
+
+constraints:
+  互斥規則:
+    - image 與 image_tail 至少填一個，不可同時為空
+    - image_tail、dynamic_masks/static_mask、camera_control 三者互斥，只能擇一
+    - element_list 與 voice_list 互斥，不可同時使用
+    - 使用 voice_list 時，sound 必須設為 on
+  遮罩規則:
+    - static_mask 與 dynamic_masks.mask 的解析度必須相同
+    - 遮罩圖片的寬高比必須與 image 欄位一致
+  軌跡規則:
+    - 5 秒影片最多 77 個軌跡座標點
+    - 軌跡座標使用圖片左下角為原點
+    - 至少 2 個點（2 點 = 直線），點越多軌跡越精確
+  多鏡頭規則:
+    - multi_prompt 所有鏡頭 duration 之和必須等於頂層 duration
+    - 最多 6 個鏡頭，每段提示詞不超過 512 字元
+  其他:
+    - 影片 URL 有效期限為 30 天，請及時下載儲存
+    - kling-v2.x 系列不支援 cfg_scale 參數
+    - camera_control.config 的 6 個參數中只能有 1 個非零值
+    - 不同模型版本對 sound / mode / duration / camera_control / element_list 等的支援範圍不同，請參考官方 Capability Map
+    - model_name 舊欄位 model 仍相容，預設呼叫 v1 模型
